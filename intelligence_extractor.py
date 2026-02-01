@@ -97,13 +97,42 @@ class IntelligenceExtractor:
     def _extract_bank_accounts(self, text: str) -> List[str]:
         """Extract potential bank account numbers"""
         accounts = set()
+        text_lower = text.lower()
+        
+        # Patterns that indicate a number is NOT a bank account
+        non_account_patterns = [
+            r'employee\s*id[:\s]*',
+            r'emp[:\s]*id[:\s]*',
+            r'staff\s*id[:\s]*',
+            r'id\s*(?:number|no)?[:\s]*',
+            r'case\s*(?:number|no)?[:\s]*',
+            r'reference\s*(?:number|no)?[:\s]*',
+            r'complaint\s*(?:number|no)?[:\s]*',
+            r'ticket\s*(?:number|no)?[:\s]*',
+            r'order\s*(?:number|no)?[:\s]*',
+        ]
+        
         for pattern in self.patterns["bank_account"]:
-            matches = pattern.findall(text)
-            for match in matches:
-                clean_match = re.sub(r'[\s-]', '', match)
+            for match in pattern.finditer(text):
+                clean_match = re.sub(r'[\s-]', '', match.group())
                 if len(clean_match) >= 9 and len(clean_match) <= 18:
-                    if not (len(clean_match) == 10 and clean_match[0] in '6789'):
+                    # Skip if it's a phone number (10 digits starting with 6-9)
+                    if len(clean_match) == 10 and clean_match[0] in '6789':
+                        continue
+                    
+                    # Check if this number appears after an employee ID or similar context
+                    start_pos = match.start()
+                    context_before = text_lower[max(0, start_pos - 30):start_pos]
+                    
+                    is_non_account = False
+                    for non_pattern in non_account_patterns:
+                        if re.search(non_pattern, context_before, re.IGNORECASE):
+                            is_non_account = True
+                            break
+                    
+                    if not is_non_account:
                         accounts.add(clean_match)
+        
         return list(accounts)
     
     def _extract_upi_ids(self, text: str) -> List[str]:
