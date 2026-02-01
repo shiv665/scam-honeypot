@@ -1,17 +1,23 @@
-# Fly.io configuration
-app = "scam-honeypot-api"
-primary_region = "bom"
+# fly.toml app configuration file generated for scam-honeypot-3286 on 2026-02-01T12:14:49Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'scam-honeypot-3286'
+primary_region = 'bom'
 
 [build]
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = false
+  auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
+  processes = ['app']
 
 [[vm]]
-  memory = "256mb"
-  cpu_kind = "shared"
+  memory = '1gb'
+  cpu_kind = 'shared'
   cpus = 1
+  memory_mb = 256
