@@ -40,19 +40,47 @@ app.add_middleware(
 )
 
 
-async def verify_api_key(x_api_key: Optional[str] = Header(None)):
-    """Verify API key from request header"""
-    if not x_api_key:
+async def verify_api_key(
+    x_api_key: Optional[str] = Header(None, alias="x-api-key"),
+    authorization: Optional[str] = Header(None),
+    api_key_header: Optional[str] = Header(None, alias="api-key"),
+    apikey_header: Optional[str] = Header(None, alias="apikey")
+):
+    """
+    Verify API key from request header.
+    Accepts multiple header formats for compatibility:
+    - x-api-key (primary)
+    - Authorization (with or without Bearer prefix)
+    - api-key
+    - apikey
+    """
+    # Try different header formats
+    provided_key = None
+    
+    if x_api_key:
+        provided_key = x_api_key
+    elif api_key_header:
+        provided_key = api_key_header
+    elif apikey_header:
+        provided_key = apikey_header
+    elif authorization:
+        # Handle Bearer token format
+        if authorization.startswith("Bearer "):
+            provided_key = authorization[7:]
+        else:
+            provided_key = authorization
+    
+    if not provided_key:
         raise HTTPException(
             status_code=401,
             detail="Missing API key. Please provide x-api-key header."
         )
-    if x_api_key != API_KEY:
+    if provided_key != API_KEY:
         raise HTTPException(
             status_code=403,
             detail="Invalid API key"
         )
-    return x_api_key
+    return provided_key
 
 
 @app.get("/")
