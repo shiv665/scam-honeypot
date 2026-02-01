@@ -178,13 +178,8 @@ class ConversationAgent:
                     session.tactics_observed.append(tactic)
         
         if detection_result:
-            # OR operation: once scam is detected, keep it as scam for entire session
-            # max(previous_scam, current_scam) - if ever detected as scam, stays scam
-            session.scam_detected = session.scam_detected or detection_result.is_scam
-            
-            # Update detection_result only if current detection has higher confidence
-            if session.detection_result is None or detection_result.confidence > session.detection_result.confidence:
-                session.detection_result = detection_result
+            session.scam_detected = detection_result.is_scam
+            session.detection_result = detection_result
         
         if intelligence:
             # Merge intelligence with existing data (don't replace)

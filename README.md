@@ -207,6 +207,3 @@ curl -X POST http://localhost:8000/process \
   }'
 ```
 
-## 📜 License
-
-MIT License - For GUVI Hackathon use.
