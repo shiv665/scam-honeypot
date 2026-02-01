@@ -134,10 +134,13 @@ async def process_message(
     Returns: {"status": "success", "reply": "..."}
     """
     try:
+        # Get session ID from either sessionId or session_id field
+        session_id = request.get_session_id()
+        
         response = honeypot_handler.process_message(request)
         
         # Schedule GUVI callback check in background
-        background_tasks.add_task(send_guvi_callback_if_ready, request.sessionId)
+        background_tasks.add_task(send_guvi_callback_if_ready, session_id)
         
         return response
     except Exception as e:

@@ -37,8 +37,11 @@ class HoneypotHandler:
         Returns:
             AgentResponse with the reply message
         """
+        # Get session ID from flexible field
+        session_id = request.get_session_id()
+        
         # Get or create session state
-        session = self.agent.get_or_create_session(request.sessionId)
+        session = self.agent.get_or_create_session(session_id)
         
         # Analyze the message for scam indicators
         detection_result = self.detector.analyze(
@@ -53,7 +56,7 @@ class HoneypotHandler:
         # Update session state (this increments turn_count)
         # Pass first_message for persona selection on turn 0
         session = self.agent.update_session(
-            request.sessionId,
+            session_id,
             detection_result,
             intelligence,
             first_message=request.message.text  # For dynamic persona selection
@@ -76,7 +79,7 @@ class HoneypotHandler:
         
         # Save conversation turn to MongoDB
         self.agent.save_conversation_turn(
-            request.sessionId,
+            session_id,
             request.message,
             reply
         )

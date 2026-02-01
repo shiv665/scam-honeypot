@@ -18,6 +18,10 @@ class Message(BaseModel):
     sender: SenderType
     text: str  # GUVI uses 'text' not 'content'
     timestamp: Optional[datetime] = Field(default_factory=datetime.now)
+    
+    class Config:
+        # Allow extra fields to be ignored
+        extra = "ignore"
 
 
 class ConversationMetadata(BaseModel):
@@ -25,14 +29,26 @@ class ConversationMetadata(BaseModel):
     channel: str = "SMS"
     language: str = "English"
     locale: str = "IN"
+    
+    class Config:
+        extra = "ignore"
 
 
 class IncomingRequest(BaseModel):
-    """Input request format matching GUVI API specification"""
-    sessionId: str
+    """Input request format matching GUVI API specification - accepts multiple formats"""
+    sessionId: Optional[str] = Field(None, alias="sessionId")
+    session_id: Optional[str] = Field(None)  # Alternative format
     message: Message
     conversationHistory: List[Message] = Field(default_factory=list)
     metadata: Optional[ConversationMetadata] = Field(default_factory=ConversationMetadata)
+    
+    class Config:
+        extra = "ignore"
+        populate_by_name = True
+    
+    def get_session_id(self) -> str:
+        """Get session ID from either field"""
+        return self.sessionId or self.session_id or "default-session"
 
 
 class ScamIndicator(BaseModel):
