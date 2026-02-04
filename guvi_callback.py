@@ -165,14 +165,22 @@ class GuviCallbackHandler:
         if not session.scam_detected:
             return False
         
-        # Check if ALL intelligence types are extracted
+        # Check if ALL key intelligence types are extracted (phone, UPI, links)
         intel = session.extracted_intelligence
         has_all_intel = (
             len(intel.bankAccounts) > 0 and
-            len(intel.upiIds) > 0 and
             len(intel.phoneNumbers) > 0 and
+            len(intel.upiIds) > 0 and
             len(intel.phishingLinks) > 0
         )
+        
+        # Log what intel we have
+        intel_summary = []
+        if intel.phoneNumbers: intel_summary.append(f"phones:{len(intel.phoneNumbers)}")
+        if intel.upiIds: intel_summary.append(f"upis:{len(intel.upiIds)}")
+        if intel.phishingLinks: intel_summary.append(f"links:{len(intel.phishingLinks)}")
+        if intel.bankAccounts: intel_summary.append(f"banks:{len(intel.bankAccounts)}")
+        print(f"📊 Intel status: {', '.join(intel_summary) if intel_summary else 'none yet'} | Turn {session.turn_count}/{min_turns}")
         
         # If callback was never sent
         if not session.callback_sent:
