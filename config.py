@@ -24,8 +24,8 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 # Enable LLM-based responses
 USE_LLM = os.getenv("USE_LLM", "false").lower() == "true"
 
-# Minimum turns before sending GUVI callback (6 turns minimum)
-MIN_ENGAGEMENT_TURNS = int(os.getenv("MIN_ENGAGEMENT_TURNS", 6))
+# Minimum turns before sending GUVI callback (3 turns minimum)
+MIN_ENGAGEMENT_TURNS = int(os.getenv("MIN_ENGAGEMENT_TURNS", 3))
 
 # Scam Detection Thresholds
 SCAM_CONFIDENCE_THRESHOLD = 0.4  # Minimum confidence to classify as scam
