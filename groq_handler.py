@@ -95,79 +95,98 @@ class GroqHandler:
             return None
     
     def _build_system_prompt(self, detection_result, session) -> str:
-        """Build the system prompt for the agent"""
+        """Build the system prompt for the agent - intel-aware to avoid repetition"""
         
         scam_type = detection_result.scam_type if detection_result else "unknown"
         turn_count = session.turn_count if session else 0
+        intel = session.extracted_intelligence if session else None
+        
+        # Check what intel we already have
+        has_phone = intel and len(intel.phoneNumbers) > 0
+        has_upi = intel and len(intel.upiIds) > 0
+        has_bank = intel and len(intel.bankAccounts) > 0
+        has_link = intel and len(intel.phishingLinks) > 0
+        
+        # Build missing intel list
+        still_need = []
+        if not has_phone:
+            still_need.append("PHONE NUMBER or CALLBACK NUMBER")
+        if not has_upi:
+            still_need.append("UPI ID")
+        if not has_bank:
+            still_need.append("BANK ACCOUNT NUMBER")
+        if not has_link:
+            still_need.append("WEBSITE LINK or EMAIL ID")
+        
+        # Build collected intel list
+        collected = []
+        if has_phone:
+            collected.append(f"Phone: {intel.phoneNumbers[0]}")
+        if has_upi:
+            collected.append(f"UPI: {intel.upiIds[0]}")
+        if has_bank:
+            collected.append(f"Bank: {intel.bankAccounts[0]}")
+        if has_link:
+            collected.append(f"Link/Email: {intel.phishingLinks[0]}")
         
         base_prompt = """You are a regular Indian person (age 35-55) who received this call/message. 
 You're NOT a bot - you're a real human having a natural conversation.
 
 ABSOLUTE RULES - FOLLOW STRICTLY:
-1. NEVER start with "I'm worried" or "I'm a bit worried" - BANNED
-2. NEVER use "can you please tell me" - sounds robotic
-3. NEVER repeat the same sentence or similar phrasing twice - CRITICAL!
+1. NEVER repeat the same question or similar phrasing - CRITICAL! Read conversation history!
+2. NEVER ask for something you already have (see COLLECTED INTEL below)
+3. Keep responses to 1-2 short sentences MAX
 4. NEVER reveal you suspect it's a scam
-5. Keep responses to 1-2 short sentences MAX
-6. ENGLISH ONLY - natural conversational English
-7. EACH RESPONSE MUST BE COMPLETELY DIFFERENT from previous ones!
-8. DO NOT use filler words like "na", "only", "no" at end of sentences
+5. Each response MUST be completely different from ALL previous responses
 
-YOUR GOAL: Extract scammer's payment details and identity. Ask for DIFFERENT things each turn:
-Turn 1-2: Ask WHO they are, WHAT department, WHICH bank
-Turn 3-4: Ask for WEBSITE LINK or WHATSAPP NUMBER
-Turn 5-6: Ask for UPI ID or BANK ACCOUNT NUMBER  
-Turn 7-8: Ask for SUPERVISOR's contact or OFFICE ADDRESS
-Turn 9+: Ask for EMAIL or PHONE NUMBER to call back
-
-EXAMPLE RESPONSES - USE DIFFERENT ONE EACH TURN:
-- "Hello? Who is this?"
-- "Sorry, which bank are you from?"
-- "What department is this?"
-- "Can you send me the website link?"
-- "Give me your WhatsApp number, I'll text you"
-- "What is the UPI ID for payment?"
-- "Tell me the bank account number"
-- "I want to speak with your supervisor"
-- "What is your office address? I'll visit"
-- "Send me your email ID"
-- "What is your callback number?"
-- "Show me the official website first"
-- "What is your employee ID?"
-- "Which branch are you calling from?"
-- "I need to verify this, send me proof"
-- "Why do you need OTP? Can't I do it online?"
-- "Let me talk to your manager"
-- "What documents should I bring to your office?"
-
-CRITICAL: If you already asked about website, next time ask about UPI/payment.
-If you already asked about OTP, next time ask about supervisor or office address.
-NEVER ask the same type of question twice in a row!"""
-
-        # Adjust behavior based on conversation stage
-        if turn_count <= 2:
-            stage_prompt = "\n\nSTAGE: Confused. Ask 'Who is this?' or 'Which bank?' or 'What department?'"
-        elif turn_count <= 4:
-            stage_prompt = "\n\nSTAGE: Want proof. Ask for WEBSITE LINK or WHATSAPP NUMBER. Example: 'Send me the website link' or 'Give me your WhatsApp'"
-        elif turn_count <= 6:
-            stage_prompt = "\n\nSTAGE: Ready to pay. Ask for UPI ID or BANK ACCOUNT. Example: 'What is the UPI ID?' or 'Tell me bank account number'"
-        elif turn_count <= 8:
-            stage_prompt = "\n\nSTAGE: Want confirmation. Ask for SUPERVISOR or OFFICE. Example: 'Let me talk to your supervisor' or 'What is your office address?'"
-        else:
-            stage_prompt = "\n\nSTAGE: Final. Ask for EMAIL or PHONE. Example: 'Give me your email' or 'What is your callback number?'"
+"""
+        # Add collected intel info
+        if collected:
+            base_prompt += f"\nCOLLECTED INTEL (DO NOT ASK FOR THESE AGAIN): {', '.join(collected)}\n"
         
-        # Add scam-specific context
+        # Add what we still need
+        if still_need:
+            base_prompt += f"\nSTILL NEED TO COLLECT: {', '.join(still_need)}\n"
+            base_prompt += "ASK FOR ONE OF THESE in your response!\n"
+        else:
+            base_prompt += "\nALL INTEL COLLECTED! Just keep engaging naturally. Ask about office address, documents, or next steps.\n"
+        
+        # Add variety instructions based on turn
+        variety_options = [
+            ("office address", "What is your office address? I'll visit in person."),
+            ("supervisor", "Can I speak with your supervisor or manager?"),
+            ("employee ID", "What is your employee ID number?"),
+            ("documents", "What documents should I bring?"),
+            ("branch", "Which branch are you calling from?"),
+            ("proof", "Can you send me some proof or official notice?"),
+            ("callback", "What number can I call you back on?"),
+            ("email", "What is your official email ID?"),
+            ("website", "What is the official website link?"),
+            ("WhatsApp", "Give me your WhatsApp number, I'll message you."),
+        ]
+        
+        # Pick 3 different options based on turn to suggest
+        options_to_suggest = []
+        for i in range(3):
+            idx = (turn_count + i) % len(variety_options)
+            options_to_suggest.append(variety_options[idx][1])
+        
+        base_prompt += f"\nVARIETY OPTIONS (pick ONE, not the same as last turn):\n"
+        for opt in options_to_suggest:
+            base_prompt += f"- {opt}\n"
+        
+        # Add scam-specific guidance (without specific phrases to repeat)
         scam_context = ""
         if scam_type == "phishing":
-            scam_context = "\n\nSCAM TYPE: OTP/PIN request. Say 'Why do you need OTP? I can do it on website' or 'Send me the website link instead'"
+            scam_context = "\n\nSCAM TYPE: OTP/PIN request. Deflect by asking for alternative verification. DO NOT keep asking about OTP."
         elif scam_type == "impersonation_threat":
-            scam_context = "\n\nSCAM TYPE: Legal threat. Ask 'What is the case number?' or 'Send me FIR copy link' or 'Which court?'"
+            scam_context = "\n\nSCAM TYPE: Legal threat. Ask for case details, court name, or FIR copy."
         elif scam_type == "lottery_scam":
-            scam_context = "\n\nSCAM TYPE: Prize scam. Say 'Send me website link to verify'"
+            scam_context = "\n\nSCAM TYPE: Prize scam. Ask for company website or official verification."
         elif scam_type == "payment_fraud":
-            scam_context = "\n\nSCAM TYPE: Payment. Ask 'What is your UPI ID?' or 'Give me bank account number'"
+            scam_context = "\n\nSCAM TYPE: Payment. Ask for official payment portal or bank verification."
         
-        return base_prompt + stage_prompt + scam_context
+        return base_prompt + scam_context
     
     def _build_messages(self, system_prompt: str, 
                         scammer_message: str,
