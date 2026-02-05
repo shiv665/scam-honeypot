@@ -26,8 +26,7 @@ class IntelligenceExtractor:
                 re.compile(r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'),
             ],
             "upi_id": [
-                re.compile(r'\b[a-zA-Z0-9._-]+@[a-zA-Z]{2,}\b'),
-                re.compile(r'\b[a-zA-Z0-9._-]+@(ybl|paytm|okaxis|okhdfcbank|oksbi|upi|apl|axl|ibl|sbi|icici|hdfc)\b', re.IGNORECASE),
+                re.compile(r'\b([a-zA-Z0-9._-]+@(?:ybl|paytm|okaxis|okhdfcbank|oksbi|upi|apl|axl|ibl|sbi|icici|hdfc))\b', re.IGNORECASE),
             ],
             "phone_number": [
                 re.compile(r'\+91[\s-]?\d{10}\b'),
@@ -38,6 +37,9 @@ class IntelligenceExtractor:
                 re.compile(r'https?://[^\s<>"{}|\\^`\[\]]+', re.IGNORECASE),
                 re.compile(r'www\.[^\s<>"{}|\\^`\[\]]+', re.IGNORECASE),
                 re.compile(r'\b[a-zA-Z0-9-]+\.(com|in|org|net|xyz|top|click|loan|co\.in|io)[/\w.-]*\b', re.IGNORECASE),
+            ],
+            "email": [
+                re.compile(r'\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.(?:com|in|org|net|co\.in|io))\b', re.IGNORECASE),
             ],
         }
         
@@ -80,11 +82,14 @@ class IntelligenceExtractor:
                 upi_ids = self._extract_upi_ids(text)
                 phone_nums = self._extract_phone_numbers(text)
                 phish_links = self._extract_urls(text)
+                emails = self._extract_emails(text)
                 
                 intelligence.bankAccounts.extend(bank_accts)
                 intelligence.upiIds.extend(upi_ids)
                 intelligence.phoneNumbers.extend(phone_nums)
                 intelligence.phishingLinks.extend(phish_links)
+                # Emails go into phishingLinks as per requirement
+                intelligence.phishingLinks.extend(emails)
         
         # Remove duplicates while preserving order
         intelligence.bankAccounts = list(dict.fromkeys(intelligence.bankAccounts))
@@ -178,6 +183,18 @@ class IntelligenceExtractor:
                 if len(url) > 5:
                     urls.add(url)
         return list(urls)
+    
+    def _extract_emails(self, text: str) -> List[str]:
+        """Extract email addresses (added to phishing links)"""
+        emails = set()
+        for pattern in self.patterns["email"]:
+            matches = pattern.findall(text)
+            for match in matches:
+                email = match.strip().lower()
+                # Don't add UPI IDs that look like emails
+                if not any(upi_suffix in email for upi_suffix in ['@ybl', '@paytm', '@okaxis', '@okhdfcbank', '@oksbi', '@upi', '@apl', '@axl', '@ibl']):
+                    emails.add(email)
+        return list(emails)
     
     def _extract_keywords(self, text: str) -> List[str]:
         """Extract suspicious keywords from text"""

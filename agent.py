@@ -341,221 +341,312 @@ class ConversationAgent:
         return handler(scammer_text, session)
     
     def _handle_phishing_scam(self, text: str, session: SessionState) -> str:
-        """Handle OTP/PIN/CVV phishing attempts"""
+        """Handle OTP/PIN/CVV phishing attempts - Intel-aware responses"""
         turn = session.turn_count
+        intel = session.extracted_intelligence
         
-        responses = [
-            # Early engagement - appear confused but willing
-            [
-                "Oh, you need my OTP? I'm not sure what that is. Can you explain why you need it?",
-                "I received a code on my phone. But I thought we shouldn't share this with anyone?",
-                "Wait, my bank says never to share OTP. Are you sure you're from the bank?",
-                "Let me check... I got an OTP but I'm a bit confused about this process.",
-            ],
-            # Middle engagement - ask for verification
-            [
-                "Before I share anything, can you give me your employee ID and your supervisor's name?",
-                "I want to verify this is legitimate. What's the official bank helpline number I can call back?",
-                "My son told me to never share OTPs. Can you confirm this is safe?",
-                "What exactly will happen after I share this code? I want to understand the process.",
-            ],
-            # Intelligence extraction - ask for their details
-            [
-                "I'm still not sure. Can you give me your direct phone number so I can call you back?",
-                "What's the account number you're referring to? I have multiple accounts.",
-                "Which branch are you calling from? I'll visit in person to complete this.",
-                "Send me the details on my registered email so I can verify. What email do you have on file?",
-            ],
+        # Check what intel we already have
+        has_upi = len(intel.upiIds) > 0
+        has_phone = len(intel.phoneNumbers) > 0
+        has_bank = len(intel.bankAccounts) > 0
+        has_link = len(intel.phishingLinks) > 0
+        
+        # Build questions for missing intel
+        missing_questions = []
+        if not has_phone:
+            missing_questions.append("What is your direct phone number so I can call you back?")
+            missing_questions.append("Can you give me a callback number to verify?")
+        if not has_upi:
+            missing_questions.append("What is your UPI ID for the payment?")
+            missing_questions.append("Which UPI ID should I send the verification amount to?")
+        if not has_bank:
+            missing_questions.append("What is the account number you are referring to?")
+            missing_questions.append("Can you confirm the bank account number?")
+        if not has_link:
+            missing_questions.append("What is your official email ID for verification?")
+            missing_questions.append("Can you send me the details via email? What is your email?")
+        
+        # OTP deflection responses (vary by turn)
+        otp_deflections = [
+            "I didn't receive any OTP on my phone.",
+            "No OTP came to my phone yet.",
+            "I'm checking but there's no OTP message.",
+            "My phone shows no new OTP.",
+            "I haven't received any code yet.",
         ]
         
-        stage = min(turn // 2, len(responses) - 1)
-        return random.choice(responses[stage])
+        # Combine OTP deflection with intel question if available
+        deflection = otp_deflections[turn % len(otp_deflections)]
+        
+        if missing_questions:
+            question = missing_questions[turn % len(missing_questions)]
+            return f"{deflection} {question}"
+        else:
+            # All intel collected, just keep engaging
+            engaging_responses = [
+                "I'm still waiting for the OTP. Can you explain the process again?",
+                "Let me check my messages again. What should I do after I get the OTP?",
+                "My phone is slow. Can you tell me more about why this is needed?",
+            ]
+            return random.choice(engaging_responses)
     
     def _handle_threat_scam(self, text: str, session: SessionState) -> str:
-        """Handle threat/impersonation scams"""
+        """Handle threat/impersonation scams - Intel-aware responses"""
         turn = session.turn_count
+        intel = session.extracted_intelligence
         
-        responses = [
-            # Initial fear response
-            [
-                "Oh my god, what? Arrest? What have I done wrong? Please explain!",
-                "Sir/Madam, I'm very scared. Please tell me what this is about.",
-                "I haven't done anything illegal! What case is this about?",
-                "This must be a mistake. I'm a law-abiding citizen. What should I do?",
-            ],
-            # Seeking more details
-            [
-                "What is the case number? I need to consult my family about this.",
-                "Can you give me the FIR number so I can verify at the police station?",
-                "Which department are you from? I need your badge number for my records.",
-                "How much is the fine? And where should I pay it officially?",
-            ],
-            # Intelligence extraction
-            [
-                "If I need to pay, what are the official payment options? Do you have a bank account number?",
-                "Can you send me the official notice? What's the email or address?",
-                "I'll cooperate fully. Just give me your contact number so I can call back.",
-                "My lawyer wants to know the case details. Can you provide your department's address?",
-            ],
+        # Check what intel we already have
+        has_upi = len(intel.upiIds) > 0
+        has_phone = len(intel.phoneNumbers) > 0
+        has_bank = len(intel.bankAccounts) > 0
+        has_link = len(intel.phishingLinks) > 0
+        
+        # Build questions for missing intel
+        missing_questions = []
+        if not has_phone:
+            missing_questions.append("What is your official contact number?")
+            missing_questions.append("Can you give me your department's phone number?")
+        if not has_upi:
+            missing_questions.append("If I need to pay a fine, what is the UPI ID?")
+            missing_questions.append("What is the official UPI for payment?")
+        if not has_bank:
+            missing_questions.append("What is the official bank account for payment?")
+            missing_questions.append("Can you provide the bank account details?")
+        if not has_link:
+            missing_questions.append("What is your official email ID for sending documents?")
+            missing_questions.append("Can you email me the case details?")
+        
+        # Fear/concern responses (vary by turn)
+        fear_responses = [
+            "Oh my god, I'm very scared.",
+            "Sir/Madam, please tell me what to do.",
+            "I haven't done anything wrong!",
+            "I'll cooperate fully.",
+            "This must be a mistake.",
         ]
         
-        stage = min(turn // 2, len(responses) - 1)
-        return random.choice(responses[stage])
+        response_base = fear_responses[turn % len(fear_responses)]
+        
+        if missing_questions:
+            question = missing_questions[turn % len(missing_questions)]
+            return f"{response_base} {question}"
+        else:
+            return f"{response_base} What should I do next?"
     
     def _handle_lottery_scam(self, text: str, session: SessionState) -> str:
-        """Handle lottery/prize scams"""
+        """Handle lottery/prize scams - Intel-aware responses"""
         turn = session.turn_count
+        intel = session.extracted_intelligence
         
-        responses = [
-            # Initial excitement
-            [
-                "Wow, really? I won something? That's amazing! What did I win?",
-                "Oh my goodness! I never win anything! How much is the prize?",
-                "This is wonderful news! How do I claim my prize?",
-                "Are you serious? I actually won? When was this lottery?",
-            ],
-            # Cautious engagement
-            [
-                "Wait, I don't remember entering any lottery. Which company is this from?",
-                "What's the process to claim? I don't want to miss this opportunity!",
-                "Is there any fee I need to pay? That seems strange for a prize...",
-                "My family won't believe this! Can you send me official documentation?",
-            ],
-            # Intelligence extraction
-            [
-                "Where should I collect the prize? What's the office address?",
-                "If there's a processing fee, where do I send it? What's the account or UPI?",
-                "Can you call me back on your official number? What number should I save?",
-                "Send me the details on WhatsApp. What's the official number?",
-            ],
+        # Check what intel we already have
+        has_upi = len(intel.upiIds) > 0
+        has_phone = len(intel.phoneNumbers) > 0
+        has_bank = len(intel.bankAccounts) > 0
+        has_link = len(intel.phishingLinks) > 0
+        
+        # Build questions for missing intel
+        missing_questions = []
+        if not has_phone:
+            missing_questions.append("What is your official contact number?")
+            missing_questions.append("Can you give me a number to call back?")
+        if not has_upi:
+            missing_questions.append("What is the UPI ID for the processing fee?")
+            missing_questions.append("Where should I send the fee? What UPI?")
+        if not has_bank:
+            missing_questions.append("What is the bank account for the fee?")
+            missing_questions.append("Can you give me the account details?")
+        if not has_link:
+            missing_questions.append("What is your email to send my documents?")
+            missing_questions.append("Can you email me the prize details?")
+        
+        # Excitement responses (vary by turn)
+        excitement_responses = [
+            "Wow, I really won something?",
+            "This is amazing news!",
+            "I never win anything!",
+            "How exciting!",
+            "I can't believe it!",
         ]
         
-        stage = min(turn // 2, len(responses) - 1)
-        return random.choice(responses[stage])
+        response_base = excitement_responses[turn % len(excitement_responses)]
+        
+        if missing_questions:
+            question = missing_questions[turn % len(missing_questions)]
+            return f"{response_base} {question}"
+        else:
+            return f"{response_base} What do I do next?"
     
     def _handle_job_scam(self, text: str, session: SessionState) -> str:
-        """Handle job/investment scams"""
+        """Handle job/investment scams - Intel-aware responses"""
         turn = session.turn_count
+        intel = session.extracted_intelligence
         
-        responses = [
-            # Interest shown
-            [
-                "Work from home? That sounds perfect for me! Tell me more about this.",
-                "How much can I earn? I really need extra income right now.",
-                "What kind of work is this? Is it legitimate?",
-                "I'm very interested! What do I need to do to get started?",
-            ],
-            # Asking for details
-            [
-                "What's the company name? I want to research before joining.",
-                "How do I receive payments? Is it weekly or monthly?",
-                "Is there any training provided? Who will be my supervisor?",
-                "What's the registration process? Is there a joining fee?",
-            ],
-            # Intelligence extraction
-            [
-                "Where is your office located? I'd like to visit before joining.",
-                "What's the company's website and registration number?",
-                "If I need to deposit anything, what's the account I send it to?",
-                "Give me your HR's contact number so I can verify this opportunity.",
-            ],
+        # Check what intel we already have
+        has_upi = len(intel.upiIds) > 0
+        has_phone = len(intel.phoneNumbers) > 0
+        has_bank = len(intel.bankAccounts) > 0
+        has_link = len(intel.phishingLinks) > 0
+        
+        # Build questions for missing intel
+        missing_questions = []
+        if not has_phone:
+            missing_questions.append("What is the HR contact number?")
+            missing_questions.append("Can you give me a number to call?")
+        if not has_upi:
+            missing_questions.append("What is the UPI for the registration fee?")
+            missing_questions.append("Where should I pay? What UPI?")
+        if not has_bank:
+            missing_questions.append("What is the bank account for the fee?")
+            missing_questions.append("Can you give me account details?")
+        if not has_link:
+            missing_questions.append("What is the company email ID?")
+            missing_questions.append("Can you send details to my email?")
+        
+        # Interest responses (vary by turn)
+        interest_responses = [
+            "I'm very interested in this opportunity!",
+            "Work from home sounds perfect for me!",
+            "How much can I earn?",
+            "This sounds like a great job!",
+            "I really need this income.",
         ]
         
-        stage = min(turn // 2, len(responses) - 1)
-        return random.choice(responses[stage])
+        response_base = interest_responses[turn % len(interest_responses)]
+        
+        if missing_questions:
+            question = missing_questions[turn % len(missing_questions)]
+            return f"{response_base} {question}"
+        else:
+            return f"{response_base} What are the next steps?"
     
     def _handle_link_scam(self, text: str, session: SessionState) -> str:
-        """Handle phishing link scams"""
+        """Handle phishing link scams - Intel-aware responses"""
         turn = session.turn_count
+        intel = session.extracted_intelligence
         
-        responses = [
-            # Initial caution
-            [
-                "I see there's a link. What happens when I click it?",
-                "My phone is very slow. Can you tell me what's on that page?",
-                "I'm on my computer. The link isn't loading. What should I do?",
-                "Before I click, can you explain what this is for?",
-            ],
-            # Technical excuses
-            [
-                "I clicked but nothing happened. Maybe my internet is slow?",
-                "The page shows an error. Can you send me an alternative link?",
-                "I'm not able to access it. Can you tell me the steps over phone?",
-                "My browser is blocking it. What website is this from?",
-            ],
-            # Request alternatives
-            [
-                "Can you just tell me what to do step by step instead of the link?",
-                "I'll try from my daughter's phone. What's the URL again so I can type it?",
-                "Just send me the details directly. What information do you need from me?",
-                "This seems complicated. Can I visit your office instead? Where is it?",
-            ],
+        # Check what intel we already have
+        has_upi = len(intel.upiIds) > 0
+        has_phone = len(intel.phoneNumbers) > 0
+        has_bank = len(intel.bankAccounts) > 0
+        has_link = len(intel.phishingLinks) > 0
+        
+        # Build questions for missing intel
+        missing_questions = []
+        if not has_phone:
+            missing_questions.append("Can you tell me over phone? What is your number?")
+            missing_questions.append("My browser is not working. Can you call me?")
+        if not has_upi:
+            missing_questions.append("What is the UPI ID mentioned in the link?")
+            missing_questions.append("If I need to pay, what UPI should I use?")
+        if not has_bank:
+            missing_questions.append("What account number should I enter?")
+            missing_questions.append("Can you tell me the bank details?")
+        if not has_link:
+            missing_questions.append("Can you email me the link instead?")
+            missing_questions.append("What is your email ID?")
+        
+        # Technical excuse responses (vary by turn)
+        tech_excuses = [
+            "The link is not opening on my phone.",
+            "My internet is very slow.",
+            "The page shows an error.",
+            "My browser is blocking this.",
+            "I clicked but nothing happened.",
         ]
         
-        stage = min(turn // 2, len(responses) - 1)
-        return random.choice(responses[stage])
+        response_base = tech_excuses[turn % len(tech_excuses)]
+        
+        if missing_questions:
+            question = missing_questions[turn % len(missing_questions)]
+            return f"{response_base} {question}"
+        else:
+            return f"{response_base} Can you guide me step by step?"
     
     def _handle_kyc_scam(self, text: str, session: SessionState) -> str:
-        """Handle KYC/verification fraud"""
+        """Handle KYC/verification fraud - Intel-aware responses"""
         turn = session.turn_count
+        intel = session.extracted_intelligence
         
-        responses = [
-            # Confused compliance
-            [
-                "KYC update? I thought I already did this at the branch last year.",
-                "Oh, my account will be blocked? That's concerning! What do I need to do?",
-                "I didn't receive any SMS about this. When was it sent?",
-                "Which account are you referring to? I have multiple bank accounts.",
-            ],
-            # Verification requests
-            [
-                "How can I verify you're really from the bank? What's your employee ID?",
-                "Can I complete this at the branch instead? Which branch should I visit?",
-                "My relationship manager's name is different. Who is handling my account now?",
-                "What's the customer care number I can call to confirm this is genuine?",
-            ],
-            # Intelligence extraction
-            [
-                "If I need to submit documents, where should I email them?",
-                "What's the official bank portal for KYC? I'll do it there.",
-                "Give me your callback number and I'll call back in 5 minutes.",
-                "Which specific documents do you need? And what's the process fee if any?",
-            ],
+        # Check what intel we already have
+        has_upi = len(intel.upiIds) > 0
+        has_phone = len(intel.phoneNumbers) > 0
+        has_bank = len(intel.bankAccounts) > 0
+        has_link = len(intel.phishingLinks) > 0
+        
+        # Build questions for missing intel
+        missing_questions = []
+        if not has_phone:
+            missing_questions.append("What is your callback number?")
+            missing_questions.append("Can you give me a number to verify?")
+        if not has_upi:
+            missing_questions.append("What is the UPI ID for the fee?")
+            missing_questions.append("If there's a fee, what UPI should I use?")
+        if not has_bank:
+            missing_questions.append("Which account number are you referring to?")
+            missing_questions.append("Can you confirm the account details?")
+        if not has_link:
+            missing_questions.append("What is your email for documents?")
+            missing_questions.append("Can you email me the KYC form?")
+        
+        # Confusion responses (vary by turn)
+        confusion_responses = [
+            "I'm confused about this KYC process.",
+            "I thought I already completed KYC.",
+            "My account will be blocked?",
+            "I didn't receive any message about this.",
+            "Which account are you referring to?",
         ]
         
-        stage = min(turn // 2, len(responses) - 1)
-        return random.choice(responses[stage])
+        response_base = confusion_responses[turn % len(confusion_responses)]
+        
+        if missing_questions:
+            question = missing_questions[turn % len(missing_questions)]
+            return f"{response_base} {question}"
+        else:
+            return f"{response_base} What should I do next?"
     
     def _handle_generic_scam(self, text: str, session: SessionState) -> str:
-        """Handle generic/unclassified scams"""
+        """Handle generic/unclassified scams - Intel-aware responses"""
         turn = session.turn_count
+        intel = session.extracted_intelligence
         
-        responses = [
-            # General engagement
-            [
-                "I see, can you explain this in more detail?",
-                "I'm not sure I understand. Can you tell me more?",
-                "What exactly do you need from me?",
-                "This sounds important. How can I help?",
-            ],
-            # Information gathering
-            [
-                "Who are you representing? What organization is this?",
-                "Can you provide more details about yourself?",
-                "What's the purpose of this contact? I want to understand better.",
-                "Is there an official way I can verify this information?",
-            ],
-            # Intelligence extraction
-            [
-                "What's the best number to reach you at?",
-                "Can you send this information to my email?",
-                "Where can I come to discuss this in person?",
-                "If any payment is needed, what are the official options?",
-            ],
+        # Check what intel we already have
+        has_upi = len(intel.upiIds) > 0
+        has_phone = len(intel.phoneNumbers) > 0
+        has_bank = len(intel.bankAccounts) > 0
+        has_link = len(intel.phishingLinks) > 0
+        
+        # Build questions for missing intel
+        missing_questions = []
+        if not has_phone:
+            missing_questions.append("What is the best number to reach you?")
+            missing_questions.append("Can you give me your phone number?")
+        if not has_upi:
+            missing_questions.append("What is your UPI ID?")
+            missing_questions.append("If I need to pay, what UPI?")
+        if not has_bank:
+            missing_questions.append("What is your bank account number?")
+            missing_questions.append("Can you give account details?")
+        if not has_link:
+            missing_questions.append("What is your email address?")
+            missing_questions.append("Can you email me the details?")
+        
+        # Generic engagement responses (vary by turn)
+        generic_responses = [
+            "I see, can you explain more?",
+            "I'm interested, tell me more.",
+            "What do I need to do?",
+            "This sounds important.",
+            "I want to understand better.",
         ]
         
-        stage = min(turn // 2, len(responses) - 1)
-        return random.choice(responses[stage])
+        response_base = generic_responses[turn % len(generic_responses)]
+        
+        if missing_questions:
+            question = missing_questions[turn % len(missing_questions)]
+            return f"{response_base} {question}"
+        else:
+            return f"{response_base} What are the next steps?"
     
     def _get_generic_response(self, text: str, session: SessionState, persona: dict) -> str:
         """Generate a generic engaging response"""
