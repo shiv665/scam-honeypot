@@ -152,12 +152,12 @@ class GuviCallbackHandler:
         
         Callback is triggered when:
         - Scam is detected
-        - Minimum engagement turns reached OR all intel collected
-        - Callback hasn't been sent yet OR was sent without all intel (and now has all intel)
+        - Turn count is a multiple of min_turns (3, 6, 9, 12, etc.)
+        - OR all intel collected (phone, UPI, links, bank accounts)
         
         Args:
             session: Current session state
-            min_turns: Minimum turns before triggering callback
+            min_turns: Minimum turns / interval for triggering callback (default 3)
             
         Returns:
             True if callback should be sent
@@ -182,19 +182,20 @@ class GuviCallbackHandler:
         if intel.bankAccounts: intel_summary.append(f"banks:{len(intel.bankAccounts)}")
         print(f"📊 Intel status: {', '.join(intel_summary) if intel_summary else 'none yet'} | Turn {session.turn_count}/{min_turns}")
         
-        # If callback was never sent
-        if not session.callback_sent:
-            # Trigger after minimum engagement turns
-            if session.turn_count >= min_turns:
-                return True
-            # Or trigger early if all intel collected
-            if has_all_intel:
-                return True
-            return False
+        # Check if current turn is a multiple of min_turns (3, 6, 9, 12...)
+        is_callback_turn = session.turn_count >= min_turns and session.turn_count % min_turns == 0
         
-        # If callback was already sent but without all intel, resend if we now have all intel
-        if session.callback_sent and not session.callback_had_all_intel and has_all_intel:
-            print(f"🔄 Resending callback - all intel now collected for session: {session.session_id}")
+        # Track last callback turn to avoid duplicate callbacks at same turn
+        last_callback_turn = getattr(session, 'last_callback_turn', 0)
+        
+        # Trigger callback at every multiple of min_turns (3, 6, 9, 12, etc.)
+        if is_callback_turn and session.turn_count > last_callback_turn:
+            print(f"📤 Triggering callback at turn {session.turn_count} (multiple of {min_turns})")
+            return True
+        
+        # Also trigger if all intel collected and haven't sent callback with all intel yet
+        if has_all_intel and not session.callback_had_all_intel:
+            print(f"📤 Triggering callback - all intel collected!")
             return True
         
         return False

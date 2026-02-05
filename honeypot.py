@@ -3,10 +3,11 @@ Main Honeypot Handler
 Orchestrates scam detection, agent engagement, and intelligence extraction
 """
 import json
+from datetime import datetime
 from typing import Dict, Any
 from models import (
     IncomingRequest, Message, AgentResponse, 
-    SessionState, ExtractedIntelligence
+    SessionState, ExtractedIntelligence, ConversationTurn
 )
 from scam_detector import scam_detector
 from intelligence_extractor import intelligence_extractor
@@ -62,12 +63,9 @@ class HoneypotHandler:
             first_message=request.message.text  # For dynamic persona selection
         )
         
-        # Track total messages as 2x turn_count (scammer msg + agent response per turn)
-        session.total_messages = session.turn_count * 2
-        
-        # Save updated session to MongoDB
-        if self.agent.db and self.agent.db.is_connected():
-            self.agent.db.save_session(session.model_dump())
+        # Track total messages from actual conversation history
+        # conversation_history contains previous messages, +1 for current message, +1 for our reply
+        session.total_messages = len(request.conversationHistory) + 2
         
         # Generate contextual response
         reply = self.agent.generate_response(
@@ -77,7 +75,20 @@ class HoneypotHandler:
             session
         )
         
-        # Save conversation turn to MongoDB
+        # Add this conversation turn to the session's embedded history
+        conversation_turn = ConversationTurn(
+            turn_number=session.turn_count,
+            scammer_message=request.message.text,
+            bot_reply=reply,
+            timestamp=datetime.now()
+        )
+        session.conversation_history.append(conversation_turn)
+        
+        # Save updated session with conversation history to MongoDB
+        if self.agent.db and self.agent.db.is_connected():
+            self.agent.db.save_session(session.model_dump())
+        
+        # Also save to separate conversations collection (for backward compatibility)
         self.agent.save_conversation_turn(
             session_id,
             request.message,

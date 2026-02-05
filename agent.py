@@ -74,7 +74,7 @@ class ConversationAgent:
     
     def _dict_to_session(self, data: Dict) -> SessionState:
         """Convert MongoDB dict to SessionState object"""
-        from models import ExtractedIntelligence, ScamDetectionResult
+        from models import ExtractedIntelligence, ScamDetectionResult, ConversationTurn
         
         # Handle extracted_intelligence
         intel_data = data.get("extracted_intelligence", {})
@@ -89,6 +89,13 @@ class ConversationAgent:
         if detection_data and isinstance(detection_data, dict):
             detection_result = ScamDetectionResult(**detection_data)
         
+        # Handle conversation_history
+        history_data = data.get("conversation_history", [])
+        conversation_history = []
+        for turn_data in history_data:
+            if isinstance(turn_data, dict):
+                conversation_history.append(ConversationTurn(**turn_data))
+        
         return SessionState(
             session_id=data.get("session_id", ""),
             scam_detected=data.get("scam_detected", False),
@@ -99,7 +106,10 @@ class ConversationAgent:
             total_messages=data.get("total_messages", 0),
             engagement_strategy=data.get("engagement_strategy", "cooperative"),
             tactics_observed=data.get("tactics_observed", []),
-            callback_sent=data.get("callback_sent", False)
+            callback_sent=data.get("callback_sent", False),
+            callback_had_all_intel=data.get("callback_had_all_intel", False),
+            last_callback_turn=data.get("last_callback_turn", 0),
+            conversation_history=conversation_history
         )
     
     def select_persona_from_message(self, message_text: str) -> str:

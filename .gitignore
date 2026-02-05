@@ -4,3 +4,7 @@
 /demo_examples.txt
 /.venv
 /.vscode
+/test_guvi_flow.py
+/output.txt
+/check_session.py
+

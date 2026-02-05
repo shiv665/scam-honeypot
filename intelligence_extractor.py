@@ -66,18 +66,25 @@ class IntelligenceExtractor:
         intelligence = ExtractedIntelligence()
         
         all_text = ""
+        
         for message in messages:
             # Check sender value - handles both enum and string comparisons
             sender_value = message.sender.value if hasattr(message.sender, 'value') else str(message.sender)
+            
             if sender_value == "scammer":
                 text = message.text
                 all_text += " " + text
                 
                 # Extract various data types
-                intelligence.bankAccounts.extend(self._extract_bank_accounts(text))
-                intelligence.upiIds.extend(self._extract_upi_ids(text))
-                intelligence.phoneNumbers.extend(self._extract_phone_numbers(text))
-                intelligence.phishingLinks.extend(self._extract_urls(text))
+                bank_accts = self._extract_bank_accounts(text)
+                upi_ids = self._extract_upi_ids(text)
+                phone_nums = self._extract_phone_numbers(text)
+                phish_links = self._extract_urls(text)
+                
+                intelligence.bankAccounts.extend(bank_accts)
+                intelligence.upiIds.extend(upi_ids)
+                intelligence.phoneNumbers.extend(phone_nums)
+                intelligence.phishingLinks.extend(phish_links)
         
         # Remove duplicates while preserving order
         intelligence.bankAccounts = list(dict.fromkeys(intelligence.bankAccounts))

@@ -139,7 +139,8 @@ async def send_guvi_callback_if_ready(session_id: str):
         if success:
             session.callback_sent = True
             session.callback_had_all_intel = has_all_intel  # Track if this callback had all intel
-            # Save to MongoDB to persist callback_sent status
+            session.last_callback_turn = session.turn_count  # Track which turn this callback was sent
+            # Save to MongoDB to persist callback status
             honeypot_handler.agent.session_states[session_id] = session
             if honeypot_handler.agent.db and honeypot_handler.agent.db.is_connected():
                 honeypot_handler.agent.db.save_session(session.model_dump())

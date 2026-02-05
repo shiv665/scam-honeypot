@@ -2,8 +2,8 @@
 Data models for the Scam Honeypot System
 Matches GUVI Hackathon API specification
 """
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 from enum import Enum
 
@@ -17,11 +17,32 @@ class Message(BaseModel):
     """Represents a single message in the conversation - matches GUVI format"""
     sender: SenderType
     text: str  # GUVI uses 'text' not 'content'
-    timestamp: Optional[datetime] = Field(default_factory=datetime.now)
+    timestamp: Optional[Union[int, str, datetime]] = None  # Accepts epoch ms, ISO string, or datetime
     
     class Config:
         # Allow extra fields to be ignored
         extra = "ignore"
+    
+    @field_validator('timestamp', mode='before')
+    @classmethod
+    def parse_timestamp(cls, v):
+        """Accept timestamp in any format: epoch ms, ISO string, or datetime"""
+        if v is None:
+            return int(datetime.now().timestamp() * 1000)
+        if isinstance(v, int):
+            return v  # Already epoch milliseconds
+        if isinstance(v, float):
+            return int(v)
+        if isinstance(v, datetime):
+            return int(v.timestamp() * 1000)
+        if isinstance(v, str):
+            # Try to parse ISO format
+            try:
+                dt = datetime.fromisoformat(v.replace('Z', '+00:00'))
+                return int(dt.timestamp() * 1000)
+            except:
+                return int(datetime.now().timestamp() * 1000)
+        return int(datetime.now().timestamp() * 1000)
 
 
 class ConversationMetadata(BaseModel):
@@ -92,6 +113,14 @@ class GuviCallbackPayload(BaseModel):
     agentNotes: str
 
 
+class ConversationTurn(BaseModel):
+    """A single turn in the conversation (scammer message + bot reply)"""
+    turn_number: int
+    scammer_message: str
+    bot_reply: str
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+
 class SessionState(BaseModel):
     """Internal state tracking for a conversation session"""
     session_id: str
@@ -105,5 +134,7 @@ class SessionState(BaseModel):
     tactics_observed: List[str] = Field(default_factory=list)
     callback_sent: bool = False
     callback_had_all_intel: bool = False  # Track if callback was sent with all 4 intel types
+    last_callback_turn: int = 0  # Track last turn when callback was sent (for multiple callbacks)
+    conversation_history: List[ConversationTurn] = Field(default_factory=list)  # Embedded conversation history
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
