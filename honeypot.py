@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Dict, Any
 from models import (
     IncomingRequest, Message, AgentResponse, 
-    SessionState, ExtractedIntelligence, ConversationTurn
+    SessionState, ExtractedIntelligence, ConversationTurn, ScamDetectionResult
 )
 from scam_detector import scam_detector
 from intelligence_extractor import intelligence_extractor
@@ -25,6 +25,26 @@ class HoneypotHandler:
         self.detector = scam_detector
         self.extractor = intelligence_extractor
         self.agent = conversation_agent
+        self.ai_handler = None
+        try:
+            from groq_handler import groq_handler
+            self.ai_handler = groq_handler
+            if self.ai_handler.is_available():
+                print("AI detector enabled via Groq")
+            else:
+                print("AI detector not available - using rule-based detector")
+        except Exception as e:
+            print(f"AI detector unavailable: {e}")
+
+    def analyze_message(self, message: Message, conversation_history: list) -> ScamDetectionResult:
+        """
+        Analyze message with AI detector first, then fallback to rule-based detector.
+        """
+        if self.ai_handler and self.ai_handler.is_available():
+            ai_detection = self.ai_handler.detect_scam(message.text, conversation_history)
+            if ai_detection:
+                return ai_detection
+        return self.detector.analyze(message, conversation_history)
     
     def process_message(self, request: IncomingRequest) -> AgentResponse:
         """
@@ -44,8 +64,8 @@ class HoneypotHandler:
         # Get or create session state
         session = self.agent.get_or_create_session(session_id)
         
-        # Analyze the message for scam indicators
-        detection_result = self.detector.analyze(
+        # Analyze message for scam indicators (AI first, regex fallback)
+        detection_result = self.analyze_message(
             request.message,
             request.conversationHistory
         )

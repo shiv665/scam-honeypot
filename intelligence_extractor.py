@@ -27,6 +27,8 @@ class IntelligenceExtractor:
             ],
             "upi_id": [
                 re.compile(r'\b([a-zA-Z0-9._-]+@(?:ybl|paytm|okaxis|okhdfcbank|oksbi|upi|apl|axl|ibl|sbi|icici|hdfc))\b', re.IGNORECASE),
+                # Catch-all: any word@word that isn't a standard email domain
+                re.compile(r'\b([a-zA-Z0-9._-]+@(?!(?:gmail|yahoo|hotmail|outlook|rediffmail|protonmail|mail|email|live|aol|icloud|zoho|yandex)\b)[a-zA-Z0-9_-]+)\b(?!\.(?:com|in|org|net|co|edu|gov))', re.IGNORECASE),
             ],
             "phone_number": [
                 re.compile(r'\+91[\s-]?\d{10}\b'),
@@ -192,7 +194,7 @@ class IntelligenceExtractor:
             for match in matches:
                 email = match.strip().lower()
                 # Don't add UPI IDs that look like emails
-                if not any(upi_suffix in email for upi_suffix in ['@ybl', '@paytm', '@okaxis', '@okhdfcbank', '@oksbi', '@upi', '@apl', '@axl', '@ibl']):
+                if not any(upi_suffix in email for upi_suffix in ['@ybl', '@paytm', '@okaxis', '@okhdfcbank', '@oksbi', '@upi', '@apl', '@axl', '@ibl', '@sbi', '@icici', '@hdfc', '@fakebank']):
                     emails.add(email)
         return list(emails)
     

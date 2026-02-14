@@ -3,7 +3,7 @@ Data models for the Scam Honeypot System
 Matches GUVI Hackathon API specification
 """
 from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Tuple
 from datetime import datetime
 from enum import Enum
 
@@ -136,5 +136,19 @@ class SessionState(BaseModel):
     callback_had_all_intel: bool = False  # Track if callback was sent with all 4 intel types
     last_callback_turn: int = 0  # Track last turn when callback was sent (for multiple callbacks)
     conversation_history: List[ConversationTurn] = Field(default_factory=list)  # Embedded conversation history
+    
+    # Dynamic State Management (prevents bot from sounding scripted)
+    current_emotion: str = "high_anxiety"  # high_anxiety, technical_confusion, frustration, suspicion
+    active_topics: List[str] = Field(default_factory=list)  # Topics currently being discussed
+    recent_responses: List[str] = Field(default_factory=list)  # Last 6 responses (prevent repetition)
+    response_patterns: List[str] = Field(default_factory=list)  # Normalized response patterns for dedup
+    extracted_facts: Dict[str, str] = Field(default_factory=dict)  # fact_value -> fact_type mapping
+    received_fact_types: List[str] = Field(default_factory=list)  # [upi, phone, bank_account, link, case_number]
+    recent_questions: List[str] = Field(default_factory=list)  # Last 5 questions asked
+    emotion_history: List[Tuple[int, str]] = Field(default_factory=list)  # [(turn, emotion), ...]
+    
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+    
+    class Config:
+        arbitrary_types_allowed = True

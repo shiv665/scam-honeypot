@@ -190,8 +190,7 @@ async def analyze_message(
     Returns detailed detection results (for debugging).
     """
     try:
-        from scam_detector import scam_detector
-        result = scam_detector.analyze(request.message, request.conversationHistory)
+        result = honeypot_handler.analyze_message(request.message, request.conversationHistory)
         return result.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

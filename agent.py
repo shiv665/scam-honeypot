@@ -17,7 +17,7 @@ class ConversationAgent:
     """
     Autonomous agent that engages with scammers in realistic,
     human-like conversations to extract intelligence.
-    Uses Groq LLM (Llama 3.1) when available, falls back to rule-based responses.
+    Uses Groq LLM when available, falls back to rule-based responses.
     Uses MongoDB for persistent storage when available.
     """
     
@@ -35,11 +35,11 @@ class ConversationAgent:
             from groq_handler import groq_handler
             self.llm = groq_handler
             if self.llm.is_available():
-                print("🤖 Agent using Groq LLM (Llama 3.1) for responses")
+                print("Agent using Groq LLM for responses")
             else:
-                print("📝 Agent using rule-based responses (Groq not configured)")
+                print("Agent using rule-based responses (Groq not configured)")
         except Exception as e:
-            print(f"📝 Agent using rule-based responses: {e}")
+            print(f"Agent using rule-based responses: {e}")
             self.llm = None
     
     def _init_database(self):
@@ -242,23 +242,40 @@ class ConversationAgent:
         return []
     
     def _convert_mongo_history(self, mongo_history: List[Dict]) -> List[Message]:
-        """Convert MongoDB conversation history to Message objects for Groq"""
+        """Convert MongoDB conversation history to Message objects for LLM use"""
         messages = []
-        for turn in mongo_history:
-            # Each turn has scammer_message and agent_reply
-            if "scammer_message" in turn:
-                scammer_msg = turn["scammer_message"]
-                messages.append(Message(
-                    text=scammer_msg.get("text", ""),
-                    sender="agent",  # In our model, "agent" = scammer
-                    timestamp=scammer_msg.get("timestamp", "")
-                ))
-            if "agent_reply" in turn:
-                messages.append(Message(
-                    text=turn["agent_reply"],
-                    sender="user",  # In our model, "user" = our honeypot
-                    timestamp=turn.get("timestamp", "")
-                ))
+        for entry in mongo_history:
+            # Current Mongo format: {"sender": "scammer|agent", "text": "...", ...}
+            if "sender" in entry and "text" in entry:
+                sender = str(entry.get("sender", "")).lower()
+                mapped_sender = "scammer" if sender == "scammer" else "user"
+                messages.append(
+                    Message(
+                        text=entry.get("text", ""),
+                        sender=mapped_sender,
+                        timestamp=entry.get("timestamp", ""),
+                    )
+                )
+                continue
+
+            # Legacy format fallback: {"scammer_message": {...}, "agent_reply": "..."}
+            if "scammer_message" in entry:
+                scammer_msg = entry["scammer_message"]
+                messages.append(
+                    Message(
+                        text=scammer_msg.get("text", ""),
+                        sender="scammer",
+                        timestamp=scammer_msg.get("timestamp", ""),
+                    )
+                )
+            if "agent_reply" in entry:
+                messages.append(
+                    Message(
+                        text=entry["agent_reply"],
+                        sender="user",
+                        timestamp=entry.get("timestamp", ""),
+                    )
+                )
         return messages
     
     def mark_callback_sent(self, session_id: str) -> bool:
@@ -280,7 +297,7 @@ class ConversationAgent:
         """
         Generate a contextual response to engage the scammer.
         
-        Uses Groq LLM (Llama 3.1) for intelligent responses when available,
+        Uses Groq LLM for intelligent responses when available,
         falls back to rule-based logic with persona-aware responses.
         
         Prioritizes MongoDB history for better context continuity.
@@ -306,6 +323,7 @@ class ConversationAgent:
                 return llm_response
         
         # Fallback to rule-based responses
+        print(f"[RULE-BASED] Groq unavailable or returned None, using hardcoded response")
         scammer_text = message.text.lower()
         persona = self.personas.get(session.persona, self.personas[DEFAULT_PERSONA])
         
