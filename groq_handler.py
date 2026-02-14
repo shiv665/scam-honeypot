@@ -167,7 +167,7 @@ class GroqHandler:
                 print(f"[GROQ-GUARDRAIL] Repetition detected, generating alternative")
                 sf = self._extract_scammer_facts(scammer_message, conversation_history)
                 prev_bot_texts = self._get_prev_bot_texts(conversation_history, limit=6)
-                reply = self._fallback_non_payment_reply(sf, prev_bot_texts, conversation_history)
+                reply = self._fallback_non_payment_reply(sf, prev_bot_texts, conversation_history, state_mgr=state_mgr)
 
             # Hard guardrails against the common failures you listed.
             reply = self._apply_post_guardrails(
@@ -190,11 +190,25 @@ class GroqHandler:
             try:
                 sf = self._extract_scammer_facts(scammer_message, conversation_history)
                 prev_bot_texts = self._get_prev_bot_texts(conversation_history, limit=6)
-                fallback = self._fallback_non_payment_reply(sf, prev_bot_texts, conversation_history)
+                fallback = self._fallback_non_payment_reply(sf, prev_bot_texts, conversation_history, state_mgr=state_mgr)
+                
+                # Run post-guardrails on fallback too (structural monotony, etc.)
+                fallback = self._apply_post_guardrails(
+                    reply=fallback,
+                    scammer_message=scammer_message,
+                    conversation_history=conversation_history,
+                    scammer_facts=sf,
+                    strategy=locals().get('strategy', {}),
+                    state_mgr=state_mgr,
+                )
+                
+                # CRITICAL: Update state manager so it remembers this fallback response
+                state_mgr.update_turn(scammer_message, fallback)
+                
                 print(f"[GROQ-FALLBACK] Groq errored, using internal fallback: {fallback[:80]}{'...' if len(fallback) > 80 else ''}")
                 return fallback
-            except Exception:
-                print("[GROQ-FALLBACK] Groq errored and internal fallback also failed, returning None")
+            except Exception as fallback_err:
+                print(f"[GROQ-FALLBACK] Groq errored and internal fallback also failed: {fallback_err}")
                 return None
 
     # =========================
@@ -280,16 +294,60 @@ class GroqHandler:
                 if echoed_items:
                     base.append(f"- Already mentioned fully: {', '.join(echoed_items[:5])} — use partial refs only.")
             
-            # NEW: Physical Friction Diversity
+            # NEW: Logical Barrier (Process Confusion) — replaces Physical Friction
             base.append("")
-            base.append("PHYSICAL FRICTION DIVERSITY:")
-            base.append("- NEVER use the same technical excuse twice (e.g., 'app not loading' twice).")
-            base.append("- Use PHYSICAL excuses: dropped phone, screen cracked, spilled tea, glasses broke, power cut.")
-            base.append("- Each turn must have a DIFFERENT physical excuse if you need a delay tactic.")
-            if state_mgr.used_physical_excuses:
-                base.append(f"- Already used (DO NOT repeat): {', '.join(list(state_mgr.used_physical_excuses)[:5])}")
-            excuse_suggestion = state_mgr.get_unique_physical_excuse()
-            base.append(f"- Suggested next excuse: '{excuse_suggestion}'")
+            base.append("LOGICAL BARRIER (PROCESS CONFUSION STALLS):")
+            base.append("- PROHIBITED: Physical catastrophes (spilled tea, cracked screen, power cut, dropped phone).")
+            base.append("  These are contradictory when you're still typing fluent replies.")
+            base.append("- REQUIRED: Use 'Process Confusion' — stall by asking micro-questions about their UI/instructions:")
+            base.append("  Example: 'Where exactly on the page is the button?', 'I see two fields, which one is for OTP?'")
+            base.append("  Example: 'The app is asking for a VPA — is that the same as the ID you gave?'")
+            stall_suggestion = state_mgr.get_process_confusion_stall()
+            base.append(f"- Suggested stall: '{stall_suggestion}'")
+            if state_mgr.used_process_confusions:
+                base.append(f"- Already used (DO NOT repeat): {', '.join(list(state_mgr.used_process_confusions)[:5])}")
+            
+            # NEW: Mirror & Verify Rule
+            base.append("")
+            base.append("MIRROR & VERIFY RULE (MANDATORY):")
+            base.append("- When scammer provides a data point (UPI, Link, Phone, Account):")
+            base.append("  Your NEXT response MUST repeat that data back with slight doubt.")
+            base.append("  Example: 'You said the ID is scammer@fakebank, right? It's showing Rahul Enterprises.'")
+            base.append("  Example: 'That number +919876543210, right? It says not reachable.'")
+            base.append("- This validates intel AND forces scammer to stay engaged.")
+            if state_mgr.mirrored_data_points:
+                base.append(f"- Already mirrored: {', '.join(list(state_mgr.mirrored_data_points)[:5])}")
+            
+            # NEW: Response Diversity — Anti-Monotony
+            base.append("")
+            base.append("RESPONSE DIVERSITY (CRITICAL):")
+            base.append("- NEVER follow the same STRUCTURAL PATTERN in consecutive turns.")
+            base.append("- BAD EXAMPLE (same structure 3x): 'What if I make a mistake…account locked?' / 'What if I send wrong OTP…account blocked?' / 'What if I accidentally…locked instantly?'")
+            base.append("- These are structurally IDENTICAL even though words differ. A real person changes approach.")
+            base.append("- VARY your response type each turn: one turn ask a UI question, next turn express doubt, next turn try to comply slowly.")
+            base.append("- If you asked 'what if X happens?' last turn, do NOT ask 'what if Y happens?' this turn.")
+            if state_mgr.recent_skeletons:
+                last_skeleton = state_mgr.recent_skeletons[-1]
+                if last_skeleton:
+                    base.append(f"- Last response features: {', '.join(sorted(last_skeleton))}")
+                    base.append(f"- THIS response MUST NOT match these features. Use a DIFFERENT approach.")
+            if state_mgr.consecutive_monotone_count > 0:
+                base.append(f"- WARNING: {state_mgr.consecutive_monotone_count} consecutive monotone responses detected! CHANGE APPROACH NOW.")
+
+            # NEW: State Persistence — Tactic Rotation
+            base.append("")
+            base.append("STATE PERSISTENCE (TACTIC ROTATION):")
+            base.append("- You maintain a Used_Tactics list. NEVER repeat the same stalling tactic.")
+            base.append(f"- Last tactic category: {state_mgr.last_tactic_category or 'None'}")
+            next_cat = state_mgr.get_next_tactic_category()
+            base.append(f"- NEXT turn MUST use category: {next_cat.upper()}")
+            base.append("- Categories: CONFUSION (UI questions), SKEPTICAL (doubt scammer), SLOW_COMPLIANCE (realistic delays)")
+            base.append("- FORBIDDEN: Same category twice in a row.")
+            next_tactic = state_mgr.get_next_tactic()
+            base.append(f"- Suggested {next_cat} tactic: '{next_tactic['text']}'")
+            if state_mgr.used_tactics:
+                recent_tactics = state_mgr.used_tactics[-3:]
+                base.append(f"- Recent tactics used: {', '.join([t['category'] + ': ' + t['text'][:40] for t in recent_tactics])}")
             
             # NEW: Strategic Intel Baiting
             missing = state_mgr.get_missing_facts()
@@ -551,7 +609,7 @@ class GroqHandler:
             if re.search(r"\bupi\b|\bverification amount\b|\bpay\b|\bfee\b", reply, re.IGNORECASE):
                 # Replace with link/phone/account based move.
                 print("[GROQ-GUARDRAIL] UPI obsession blocked, using non-payment fallback")
-                return self._fallback_non_payment_reply(scammer_facts, prev_bot_texts, conversation_history)
+                return self._fallback_non_payment_reply(scammer_facts, prev_bot_texts, conversation_history, state_mgr=state_mgr)
 
         # 1b) Don't claim a link was sent if no link exists in scammer facts.
         if not scammer_facts.get("links"):
@@ -603,7 +661,7 @@ class GroqHandler:
         low = reply.lower()
         if any(self._similar(low, p) for p in prev_bot_texts):
             print("[GROQ-GUARDRAIL] Repetition detected in post-guardrail, using fallback")
-            return self._fallback_non_payment_reply(scammer_facts, prev_bot_texts, conversation_history)
+            return self._fallback_non_payment_reply(scammer_facts, prev_bot_texts, conversation_history, state_mgr=state_mgr)
 
         # 3) Ensure we acknowledge scammer facts when present (one of link/phone/account/upi)
         if self._has_any_fact(scammer_facts) and not self._mentions_any_fact(reply, scammer_facts):
@@ -614,10 +672,16 @@ class GroqHandler:
 
         # 4) SEMANTIC IGNORING FIX: If scammer just provided NEW data, validate it
         #    instead of ignoring. Ask a clarifying question about the data.
+        #    ENHANCED: Mirror & Verify — repeat data back with doubt first.
         if state_mgr:
             new_facts = state_mgr._extract_facts_from_message(scammer_message)
             for fact_type, values in new_facts.items():
                 for val in values:
+                    # FIX BLOCK 2: Mirror & Verify — repeat data back with doubt
+                    mirror_response = state_mgr.mirror_and_verify(fact_type, val)
+                    if mirror_response and not self._mentions_any_fact(reply, scammer_facts):
+                        return self._truncate_to_two_sentences(mirror_response)
+                    # Fallback to validation question
                     question = state_mgr.get_fact_validation_question(fact_type, val)
                     if question and not self._mentions_any_fact(reply, scammer_facts):
                         return self._truncate_to_two_sentences(question)
@@ -639,10 +703,56 @@ class GroqHandler:
                     pushes_for_missing = True
                 if "bank_account" in missing and re.search(r'\baccount\b.*\bnumber\b', low):
                     pushes_for_missing = True
-                if not pushes_for_missing and random.random() < 0.4:
+                # After turn 5, force baiting every turn; before that, 70% chance
+                turn_count = state_mgr.turn_count if state_mgr else 0
+                bait_probability = 1.0 if turn_count >= 5 else 0.7
+                if not pushes_for_missing and random.random() < bait_probability:
                     bait = state_mgr.get_strategic_bait()
                     if bait:
                         reply = self._truncate_to_two_sentences(reply + " " + bait)
+
+        # 7) PHYSICAL CATASTROPHE GUARD: Strip unrealistic excuses that contradict fluent typing
+        #    Replace with process confusion stalls from the Logical Barrier system.
+        if state_mgr:
+            catastrophe_patterns = [
+                r'\b(spill(?:ed)?\s+tea|cracked\s+screen|power\s+(?:cut|went\s+out)|dropped\s+(?:my\s+)?phone)\b',
+                r'\b(phone\s+fell|screen\s+(?:is\s+)?flickering|kitchen\s+sink|glasses?\s+broke)\b',
+                r'\b(ceiling\s+fan\s+wire|charger\s+sparked|dog\s+knocked|overheating)\b',
+                r'\b(battery\s+(?:at|is)\s+\d+\s*percent|running\s+to\s+get\s+charger)\b',
+            ]
+            has_catastrophe = any(re.search(p, reply, re.IGNORECASE) for p in catastrophe_patterns)
+            if has_catastrophe:
+                print("[GROQ-GUARDRAIL] Physical catastrophe detected, replacing with process confusion")
+                stall = state_mgr.get_process_confusion_stall()
+                reply = self._truncate_to_two_sentences(stall)
+
+        # 8) EXCUSE REPETITION GUARD: Catch repeated tech excuses (e.g., 'not loading' used twice)
+        if state_mgr:
+            excuse_phrases = ['not loading', 'not opening', 'app is not', 'messaging app', 'screen is frozen', 'phone is frozen']
+            prev_bot_texts_for_excuse = self._get_prev_bot_texts(conversation_history, limit=6)
+            for phrase in excuse_phrases:
+                if phrase in reply.lower():
+                    # Check if this phrase was used before
+                    prev_uses = sum(1 for p in prev_bot_texts_for_excuse if phrase in p)
+                    if prev_uses > 0:
+                        print(f"[GROQ-GUARDRAIL] Repeated excuse '{phrase}' detected, replacing with process confusion")
+                        stall = state_mgr.get_process_confusion_stall()
+                        reply = self._truncate_to_two_sentences(stall)
+                        break
+
+        # 9) STRUCTURAL MONOTONY BREAKER: Detect when consecutive responses follow the
+        #    same structural pattern (e.g., "panic + data_ref + what_if + fear_lock") even
+        #    though exact words differ. Forces a completely different response type.
+        if state_mgr:
+            if state_mgr.is_structurally_repetitive(reply):
+                print(f"[GROQ-GUARDRAIL] Structural monotony detected (same pattern 3+ turns), forcing diversity break")
+                diversity_reply = state_mgr.get_diversity_replacement()
+                if diversity_reply:
+                    reply = self._truncate_to_two_sentences(diversity_reply)
+
+        # Record the structural skeleton of the final response for future comparison
+        if state_mgr:
+            state_mgr.record_response_skeleton(reply)
 
         return reply
 
@@ -651,9 +761,11 @@ class GroqHandler:
         scammer_facts: Dict[str, Any],
         prev_bot_texts: List[str],
         conversation_history: List,
+        state_mgr: Optional[DynamicStateManager] = None,
     ) -> str:
         """
         Non-payment fallback that stays realistic and avoids repetition.
+        Uses state_mgr.used_fallback_responses to guarantee no exact repeats.
         """
         candidates: List[str] = []
         link_mode = self._link_failure_mode_from_history(prev_bot_texts)
@@ -716,6 +828,9 @@ class GroqHandler:
                 "I'm really scared but no OTP is coming. Can you resend it and tell me what exact SMS sender name will show?",
                 "I'm trying again but nothing is coming. Are you sure you have my correct registered number on your screen?",
                 "This is stressing me out. Can you give me the official helpline number so I can verify this block?",
+                "Wait, I see a button but it's greyed out. What do I do now? Which field should I click first?",
+                "The page is asking for 'IFSC code' and 'MICR code.' Which one do you need from me?",
+                "There's a dropdown showing 10 banks. Which one do I select? It doesn't have the one you mentioned.",
             ]
 
         # STRATEGIC BAITING: Always mix in UPI/link/account bait candidates
@@ -733,14 +848,39 @@ class GroqHandler:
             if not any(self._similar(bait.lower(), c.lower()) for c in candidates):
                 candidates.append(bait)
 
-        # Prefer a candidate that isn't too similar to what we already said.
-        for c in candidates:
-            if not any(self._similar(c.lower(), p) for p in prev_bot_texts):
-                return self._truncate_to_two_sentences(c)
+        # Get previously used fallback responses from state manager (hard dedup)
+        used_fallbacks = set()
+        if state_mgr and hasattr(state_mgr, 'used_fallback_responses'):
+            used_fallbacks = state_mgr.used_fallback_responses
 
-        # Last resort: rotate by history length.
-        idx = len(conversation_history) % max(len(candidates), 1)
-        return self._truncate_to_two_sentences(candidates[idx])
+        # TIER 1: Prefer candidates not similar to prev_bot_texts AND not previously used as fallback
+        tier1 = [c for c in candidates
+                 if c not in used_fallbacks
+                 and not any(self._similar(c.lower(), p) for p in prev_bot_texts)]
+        if tier1:
+            chosen = random.choice(tier1)
+            if state_mgr and hasattr(state_mgr, 'used_fallback_responses'):
+                state_mgr.used_fallback_responses.add(chosen)
+            return self._truncate_to_two_sentences(chosen)
+
+        # TIER 2: Candidates not previously used (even if somewhat similar to history)
+        tier2 = [c for c in candidates if c not in used_fallbacks]
+        if tier2:
+            chosen = random.choice(tier2)
+            if state_mgr and hasattr(state_mgr, 'used_fallback_responses'):
+                state_mgr.used_fallback_responses.add(chosen)
+            return self._truncate_to_two_sentences(chosen)
+
+        # TIER 3: All candidates exhausted — use process confusion stall (always unique)
+        if state_mgr:
+            stall = state_mgr.get_process_confusion_stall()
+            if stall:
+                state_mgr.used_fallback_responses.add(stall)
+                return self._truncate_to_two_sentences(stall)
+
+        # Last resort: random pick (all candidates were used, no state_mgr)
+        chosen = random.choice(candidates)
+        return self._truncate_to_two_sentences(chosen)
 
     def _has_any_fact(self, facts: Dict[str, Any]) -> bool:
         return bool(facts.get("links") or facts.get("phone_numbers") or facts.get("bank_accounts") or facts.get("upi_ids"))
@@ -844,13 +984,13 @@ class GroqHandler:
             return True
         if len(b2) > 20 and b2 in a2:
             return True
-        # token overlap
+        # token overlap — lowered from 0.85 to 0.70 to catch near-duplicate responses
         ta = set(a2.split())
         tb = set(b2.split())
         if not ta or not tb:
             return False
         overlap = len(ta & tb) / max(len(ta), 1)
-        return overlap >= 0.85
+        return overlap >= 0.70
 
     # =========================
     # Shared utilities

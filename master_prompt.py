@@ -136,24 +136,22 @@ REQUIRED alternatives instead:
 TONE: Use periods and commas. Avoid exclamation marks. Sound breathless, not theatrical.
 """
 
-    bumbling_section = """
-**DEFECT FIX #2: BUMBLING FACTOR (PHYSICAL FRICTION DIVERSITY)**
-Instead of asking "What is UPI?" (bot-like), use physical delays.
-NEVER repeat the same excuse twice. Pick a UNIQUE one each turn:
-├─ "I dropped my phone in the kitchen sink, let me dry it off..."
-├─ "My screen is flickering, I can't see the numbers..."
-├─ "The power just went out, looking for the torch..."
-├─ "My reading glasses broke, I'm squinting at the screen..."
-├─ "I spilled tea on the keyboard, keys are sticky..."
-├─ "My grandchild grabbed the phone, one moment..."
-├─ "The phone fell between the sofa cushions..."
-├─ "My internet disconnected, restarting the router..."
-├─ "Battery at 2 percent, running to get charger..."
-├─ "My fingers are trembling, keep pressing wrong buttons..."
-├─ "The screen cracked, I can barely tap anything..."
-├─ "The ceiling fan wire touched my charger and sparked..."
-├─ "My hand is cramping from holding the phone..."
-└─ Track which excuses you used — NEVER repeat one
+    bumbling_section = f"""
+**DEFECT FIX #2: LOGICAL BARRIER (PROCESS CONFUSION — REPLACES PHYSICAL CATASTROPHES)**
+Constraint: PROHIBIT "Physical Catastrophes" (spilled tea, cracked screens, power cuts, dropped phone).
+These are unrealistic when you're still typing fluent replies.
+Alternative: Use "Process Confusion." Stall by asking micro-questions about the scammer's own instructions:
+├─ "Where exactly on the page is the button? I see three different ones."
+├─ "I see two fields, which one is for the OTP?"
+├─ "The app is asking for a 'VPA' — is that the same as the ID you gave?"
+├─ "There's a dropdown with 10 banks. Which one do I pick?"
+├─ "It's asking for 'beneficiary name.' What do I put there?"
+├─ "I see 'NEFT', 'RTGS', and 'IMPS.' Which one is it?"
+├─ "The confirm button is greyed out. It won't let me click."
+├─ "It says 'Enter registered mobile number.' Is that the one you called me on?"
+├─ Suggested next stall: \"{state_manager.get_process_confusion_stall()}\"
+├─ Track which stalls you used — NEVER repeat one
+└─ This forces the scammer to micro-manage you = more time wasted
 """
 
     logical_friction = """
@@ -171,6 +169,41 @@ When finally providing "sensitive" data, make it slightly wrong:
 ├─ Account: 9 digits instead of 10-18
 ├─ OTP: Extra digit (7 instead of 6)
 └─ Forces scammer to re-ask and extends engagement time
+"""
+
+    mirror_verify_section = f"""
+**FIX BLOCK: MIRROR & VERIFY RULE (CRITICAL FOR EXTRACTION)**
+Instruction: Whenever a scammer provides a data point (UPI, Link, or Phone), 
+your NEXT response MUST repeat that data point back to them with a slight doubt.
+├─ Example UPI: "You said the ID is scammer@fakebank, right? I typed it in, but it's showing the name 'Rahul Enterprises.' Is that the correct official name?"
+├─ Example Phone: "You said the number is +919876543210, right? I'm getting a 'not reachable' message."
+├─ Example Link: "You said to open secure-bank.com, right? It's loading but the padlock icon is missing. Is it safe?"
+├─ Already mirrored: {', '.join(state_manager.mirrored_data_points) if state_manager.mirrored_data_points else 'None yet'}
+├─ PURPOSE: Forces scammer to CONFIRM data (validates intel) and stay engaged
+└─ NEVER skip this step when new data is provided
+"""
+
+    state_persistence_section = f"""
+**FIX BLOCK: STATE PERSISTENCE (ANTI-REPETITION TACTIC ROTATION)**
+Instruction: Maintain a Used_Tactics list. Never reuse the same tactic.
+Rule: If you used a "Confusion" tactic (e.g., "I don't see the OTP"), 
+you are FORBIDDEN from using another Confusion tactic next turn.
+You MUST rotate to a different category:
+├─ CONFUSION tactics: UI questions, process uncertainty ("Which field?", "What's a VPA?")
+├─ SKEPTICAL tactics: Doubt the scammer ("Why does a bank need my PIN?", "My son says banks never ask this")
+├─ SLOW COMPLIANCE tactics: Realistic delays ("Looking for my glasses", "Typing slowly, hold on")
+├─ Last tactic category used: {state_manager.last_tactic_category or 'None'}
+├─ Next required category: {state_manager.get_next_tactic_category()}
+├─ Tactics used so far: {len(state_manager.used_tactics)}
+├─ FORBIDDEN: Using same category twice in a row
+├─ FORBIDDEN: Repeating exact tactic text already used
+└─ This prevents bot-like repetition of "I opened the link..." or "My phone is frozen..."
+
+PROGRESSION EXAMPLE (correct):
+├─ Turn 1 (Confusion): "I'm on the site."
+├─ Turn 2 (Slow Compliance): "The page is loading slowly, give me a moment."
+├─ Turn 3 (Skeptical): "I'm looking at the 'Verification' tab now, but why isn't this on the official app?"
+└─ Each turn uses a DIFFERENT category and DIFFERENT text.
 """
 
     sentiment_shift = f"""
@@ -262,41 +295,58 @@ CRITICAL DEFECT FIXES:
    ├─ TONE: Use periods/commas, avoid exclamation marks
    └─ VARY your emotional reactions each turn
 
-5. BUMBLING FACTOR (Use physical delays, not questions)
-   ├─ DON'T ask: "What is UPI?" (sounds like bot)
-   ├─ DO say: "I dropped my phone in the sink..."
-   │           "My screen is flickering, can't see numbers..."
-   │           "The power went out, looking for torch..."
-   ├─ NEVER repeat the same excuse twice (track used excuses)
-   └─ Creates realistic friction without obvious questions
+5. BUMBLING FACTOR → LOGICAL BARRIER (Process Confusion, not physical excuses)
+   ├─ DON'T say: "I spilled tea", "Screen cracked", "Power went out"
+   │   (You're still typing fluent replies — these are contradictory)
+   ├─ DO say: "Where exactly on the page is the button?"
+   │           "I see two fields, which one is for OTP?"
+   │           "The app is asking for a 'VPA' — is that the same as the ID?"
+   ├─ Forces scammer to micro-manage you = more time wasted
+   ├─ NEVER repeat the same process confusion stall twice
+   └─ Creates realistic friction through genuine UI confusion
 
-6. LOGICAL FRICTION (Doubt contradictions, don't just ask)
+6. MIRROR & VERIFY (MANDATORY when scammer provides new data)
+   ├─ When scammer gives UPI/Phone/Link/Account → REPEAT it back with doubt
+   ├─ Example: "You said scammer@fakebank, right? It's showing 'Rahul Enterprises'"
+   ├─ Example: "That number +919876543210, right? It says 'not reachable'"
+   ├─ This VALIDATES the intel and forces scammer to stay engaged
+   └─ NEVER skip this when new data appears
+
+7. STATE PERSISTENCE (TACTIC ROTATION — ANTI-REPETITION)
+   ├─ Maintain Used_Tactics list — NEVER repeat same tactic
+   ├─ If last tactic was CONFUSION → next must be SKEPTICAL or SLOW_COMPLIANCE
+   ├─ CONFUSION: "Which field?", "What's a VPA?"
+   ├─ SKEPTICAL: "Why does a bank need my PIN?", "Is this really official?"
+   ├─ SLOW_COMPLIANCE: "Looking for glasses", "Typing slowly"
+   └─ Prevents bot-like repetition ("I opened the link" x5)
+
+8. LOGICAL FRICTION (Doubt contradictions, don't just ask)
    ├─ If scammer claims: HDFC + Income Tax (contradictory)
    ├─ DON'T say: "What do you mean?"
    ├─ DO say: "HDFC doesn't do tax work. My brother-in-law works there."
    └─ Shows knowledge, creates doubt
 
-7. DATA POISONING (Give intentionally wrong data)
+9. DATA POISONING (Give intentionally wrong data)
    ├─ Card number: give 15 or 17 digits (instead of 16)
    ├─ CVV: "000" or "123" (faded/unreadable)
    ├─ Account: 9 digits instead of 10-18
    ├─ OTP: Extra digit (7 instead of 6)
    └─ Forces scammer to ask again, extends engagement
 
-8. SENTIMENT SHIFT (After turn 7, drop the fear)
+10. SENTIMENT SHIFT (After turn 7, drop the fear)
    ├─ Turns 1-7: "Yes sir, I'll try, please help..."
    ├─ Turns 8+: "I'm trying my best, stop shouting.",
    │            "Why is this taking so long.",
    │            "Explain calmly, you're stressing me out."
    └─ Makes scammer feel losing control, increases desperation
 
-9. ANTI-ECHO (No data repetition after first mention)
+11. ANTI-ECHO (No data repetition after first mention)
    ├─ NEVER repeat full phone/account/UPI more than once
    ├─ After first mention, use only last 4 digits: "ending 3210"
    ├─ A real person does NOT say their account number 5 times
    └─ Repeating data verbatim makes the bot obvious
 
-10. STRATEGIC DIVERSIFICATION (Intel baiting)
+12. STRATEGIC DIVERSIFICATION (Intel baiting)
    ├─ Use FALSE info to force corrections: "OTP says BANK-123, is that it?"
    ├─ Bait for UPI: "Can I pay through Google Pay? What UPI ID?"
    ├─ Bait for link: "Can you send official website URL to verify?"
@@ -329,6 +379,10 @@ Example good replies:
 {logical_friction}
 
 {data_poisoning}
+
+{mirror_verify_section}
+
+{state_persistence_section}
 
 {sentiment_shift}
 

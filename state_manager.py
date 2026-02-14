@@ -97,6 +97,25 @@ class DynamicStateManager:
         # NEW: Track used physical excuses to prevent repetition
         self.used_physical_excuses: Set[str] = set()
         
+        # NEW: Track used fallback responses to prevent exact-repeat in fallback path
+        self.used_fallback_responses: Set[str] = set()
+        
+        # FIX BLOCK 1: Logical Barrier — process confusion stalls (replaces catastrophe excuses)
+        self.used_process_confusions: Set[str] = set()
+        
+        # FIX BLOCK 2: Mirror & Verify — track which data points have been mirrored back
+        self.mirrored_data_points: Set[str] = set()  # data values already mirrored with doubt
+        
+        # FIX BLOCK 3: State Persistence — Used_Tactics list with category rotation
+        # Categories: "confusion", "skeptical", "slow_compliance"
+        self.used_tactics: List[Dict[str, str]] = []  # [{"category": "confusion", "text": "I don't see the OTP"}]
+        self.last_tactic_category: Optional[str] = None  # last category used
+        
+        # FIX BLOCK 4: Response Diversity — structural skeleton tracking
+        # Each skeleton is a frozenset of feature flags like {"data_ref", "what_if", "fear_lock"}
+        self.recent_skeletons: List[frozenset] = []  # last 4 response skeletons
+        self.consecutive_monotone_count: int = 0  # how many consecutive structurally-similar responses
+        
         # Emotional progression
         self.current_emotion = EmotionalState.HIGH_ANXIETY
         self.emotion_history: List[Tuple[int, EmotionalState]] = [(0, EmotionalState.HIGH_ANXIETY)]
@@ -246,6 +265,180 @@ class DynamicStateManager:
         intersection = len(words1 & words2)
         union = len(words1 | words2)
         return intersection / union if union > 0 else 0.0
+
+    # =========================
+    # FIX BLOCK 4: Structural Monotony Detection
+    # =========================
+    def extract_response_skeleton(self, response: str) -> frozenset:
+        """
+        Extract structural feature flags from a response.
+        Returns a frozenset of features present (e.g., {'data_ref', 'what_if', 'fear_lock'}).
+        Two responses with the same skeleton are structurally identical even if words differ.
+        """
+        text = response.lower()
+        features = set()
+        
+        # Feature: references specific data (numbers like 3210, 3456, phone, account)
+        if re.search(r'\b(?:ending|number)\s+\d{3,}|\d{4,}|\+91', text):
+            features.add('data_ref')
+        
+        # Feature: "what if" hypothetical worry
+        if re.search(r'what if|what happens if|will it (?:lock|block|freeze)|accidentally', text):
+            features.add('what_if')
+        
+        # Feature: fear of lock/block/freeze
+        if re.search(r'lock(?:ed)?\b|block(?:ed)?\b|freez|permanently|instantly', text):
+            features.add('fear_lock')
+        
+        # Feature: emotional panic opener (handles both "I'm" and "I am" contractions)
+        if re.search(r"i(?:'m|\s+am)\s+(?:so\s+)?(?:panicking|anxious|worried|scared|getting anxious|really scared|really worried)", text):
+            features.add('panic')
+        
+        # Feature: UI/process confusion question
+        if re.search(r'which (?:one|button|field|page)|where (?:on|exactly|do i)|dropdown|checkbox|QR code', text):
+            features.add('confusion')
+        
+        # Feature: skeptical/doubt question
+        if re.search(r'how do i know|why do you need|are you really|can you prove|verify this', text):
+            features.add('skeptical')
+        
+        # Feature: slow compliance ("I'm trying", "I'm typing", "I am trying")
+        if re.search(r"i(?:'m|\s+am)\s+(?:trying|typing|doing|entering|looking|checking|opening|calling)", text):
+            features.add('compliance')
+        
+        # Feature: asking to confirm/repeat data
+        if re.search(r'can you confirm|right\??|correct\??|repeat|is (?:it|that) the (?:same|correct)', text):
+            features.add('confirm_req')
+        
+        return frozenset(features)
+    
+    def is_structurally_repetitive(self, new_response: str) -> bool:
+        """
+        Check if the new response is structurally too similar to the last 2 responses.
+        Uses 'common core' matching: finds features shared by the last 2 responses,
+        then checks if the new response also shares most of those features.
+        
+        This catches the pattern where turns 6/7/8 all follow:
+        "data_ref + fear_lock + what_if" even if one has 'panic' and another has 'confirm_req'.
+        """
+        new_skeleton = self.extract_response_skeleton(new_response)
+        
+        if len(self.recent_skeletons) < 2:
+            return False
+        
+        last_two = self.recent_skeletons[-2:]
+        
+        # Strategy 1: Common Core matching
+        # Find features shared by the last 2 responses
+        common_core = last_two[0] & last_two[1]
+        if common_core and len(common_core) >= 2:
+            # Check how many core features the new response shares
+            new_matches_core = len(new_skeleton & common_core)
+            if new_matches_core >= 2:
+                return True  # New response matches the same core pattern
+        
+        # Strategy 2: Direct high overlap with either recent response
+        for prev_skeleton in last_two:
+            if not new_skeleton or not prev_skeleton:
+                continue
+            shared = len(new_skeleton & prev_skeleton)
+            total = max(len(new_skeleton | prev_skeleton), 1)
+            if shared / total >= 0.80:
+                # Very high overlap with at least one recent response
+                # Only flag if we also have moderate overlap with the other
+                other = [s for s in last_two if s is not prev_skeleton][0]
+                if other:
+                    other_shared = len(new_skeleton & other)
+                    other_total = max(len(new_skeleton | other), 1)
+                    if other_shared / other_total >= 0.50:
+                        return True
+        
+        # Strategy 3: Check if all 3 share the same dominant feature combo
+        # (handles cases where each response has 1 unique feature but shares 2+ common ones)
+        three_way_intersection = new_skeleton & last_two[0] & last_two[1]
+        if len(three_way_intersection) >= 2:
+            return True
+        
+        return False
+    
+    def record_response_skeleton(self, response: str) -> None:
+        """Record the structural skeleton of a response for future comparison."""
+        skeleton = self.extract_response_skeleton(response)
+        self.recent_skeletons.append(skeleton)
+        if len(self.recent_skeletons) > 4:
+            self.recent_skeletons.pop(0)
+        
+        # Track consecutive monotone count
+        if len(self.recent_skeletons) >= 2:
+            last = self.recent_skeletons[-1]
+            prev = self.recent_skeletons[-2]
+            shared = len(last & prev) if last and prev else 0
+            total = max(len(last | prev), 1) if last and prev else 1
+            if shared / total >= 0.7:
+                self.consecutive_monotone_count += 1
+            else:
+                self.consecutive_monotone_count = 0
+        
+    def get_diversity_replacement(self) -> Optional[str]:
+        """
+        When structural repetition is detected, return a completely different
+        type of response to break the monotony loop.
+        Uses tactic rotation to guarantee a different category.
+        """
+        # Determine which features were overused
+        if not self.recent_skeletons:
+            return None
+        recent_features = set()
+        for sk in self.recent_skeletons[-2:]:
+            recent_features.update(sk)
+        
+        # Pick a response type that's ABSENT from recent features
+        candidates = []
+        
+        if 'confusion' not in recent_features:
+            # Use process confusion stall
+            stall = self.get_process_confusion_stall()
+            if stall:
+                candidates.append(stall)
+        
+        if 'skeptical' not in recent_features:
+            candidates.extend([
+                "Wait, my neighbor got a similar call and it was fraud. How do I know you're actually from the bank?",
+                "I just read online that banks never ask for OTP on phone. Can you give me your employee ID to verify?",
+                "Why can't I just visit the branch tomorrow and sort this out in person?",
+                "The SMS says 'Do not share OTP with anyone.' If you're from the bank, why are you asking for it?",
+                "My son is a software engineer, he says I should ask for your badge number. What is it?",
+            ])
+        
+        if 'compliance' not in recent_features and 'what_if' not in recent_features:
+            candidates.extend([
+                "Okay, I'm opening the app now. Give me a moment, it's updating.",
+                "I found the section you mentioned. There's a form here — which field do I fill first?",
+                "Alright, I'm on the bank page now. It's asking for my customer ID. Where do I find that?",
+            ])
+        
+        if not candidates:
+            # Fallback: always use a process confusion stall
+            stall = self.get_process_confusion_stall()
+            if stall:
+                candidates.append(stall)
+            else:
+                candidates.extend([
+                    "Hold on, the page just refreshed. Now I see a completely different screen. What do I click?",
+                    "Wait, I think I made an error somewhere. Can you start the instructions again from the beginning?",
+                    "My phone just showed a security warning. Should I ignore it or is it part of the process?",
+                ])
+        
+        # Filter out recently used tactics
+        unused = [c for c in candidates if not self.was_tactic_text_used(c)]
+        if unused:
+            chosen = random.choice(unused)
+        else:
+            chosen = random.choice(candidates)
+        
+        # Record it as a used tactic
+        self.record_tactic('diversity_break', chosen)
+        return chosen
 
     def get_facts_already_provided(self) -> Dict[str, List[str]]:
         """Return facts already extracted from scammer"""
@@ -664,6 +857,170 @@ class DynamicStateManager:
             ]
             return random.choice(annoyances)
         return ""
+
+    # =========================
+    # FIX BLOCK 1: Logical Barrier — Process Confusion Stalls
+    # =========================
+    def get_process_confusion_stall(self) -> str:
+        """Return a 'process confusion' question that stalls using the scammer's own UI/logic.
+        Replaces unrealistic physical catastrophes (spilled tea, cracked screens, power cuts)
+        with believable UI-level confusion that forces the scammer to micro-manage."""
+        all_stalls = [
+            "Where exactly on the page is the button? I see three different ones.",
+            "I see two fields, which one is for the OTP?",
+            "The app is asking for a 'VPA' — is that the same as the ID you gave?",
+            "There's a dropdown with 10 banks. Which one do I pick?",
+            "It's asking for 'beneficiary name.' What do I put there?",
+            "I see 'IFSC code' and 'MICR code.' Which one do you need?",
+            "The page has a 'Forgot Password' and a 'Verify' button. Which one?",
+            "It says 'Enter registered mobile number.' Is that the one you called me on?",
+            "There's a checkbox that says 'I agree to terms.' Should I tick it first?",
+            "The app is showing me a QR code now. Do I scan it or ignore it?",
+            "I see 'NEFT', 'RTGS', and 'IMPS.' Which one is it?",
+            "Wait, it's asking me to choose 'Savings' or 'Current'. Which one?",
+            "The confirm button is greyed out. It won't let me click.",
+            "I typed the ID but it's showing a red error saying 'invalid format.' What format?",
+            "The page refreshed and now I'm back on the login screen. What happened?",
+            "There's a captcha image and I can't read what it says. Can you help?",
+            "It's asking for a 4-digit PIN, but I thought you said 6-digit OTP?",
+            "I see 'Transaction Password' and 'Login Password.' They're different?",
+        ]
+        unused = [s for s in all_stalls if s not in self.used_process_confusions]
+        if not unused:
+            self.used_process_confusions.clear()
+            unused = all_stalls
+        chosen = random.choice(unused)
+        self.used_process_confusions.add(chosen)
+        return chosen
+
+    # =========================
+    # FIX BLOCK 2: Mirror & Verify — Repeat Data with Doubt
+    # =========================
+    def mirror_and_verify(self, fact_type: str, fact_value: str) -> Optional[str]:
+        """When scammer provides a data point, repeat it back with slight doubt.
+        Forces scammer to confirm and stay engaged.
+        Returns a mirror-and-verify response, or None if already mirrored."""
+        if fact_value in self.mirrored_data_points:
+            return None  # Already mirrored this data point
+        
+        self.mirrored_data_points.add(fact_value)
+        
+        upi_mirrors = [
+            f"You said the ID is {fact_value}, right? I typed it in, but it's showing a different name. Is that correct?",
+            f"Wait, is it {fact_value} or did you say something else? My phone autocorrected it.",
+            f"I entered {fact_value} but it's showing the name 'Rahul Enterprises.' Is that the correct official name?",
+            f"Hold on, {fact_value} — is the '@' part right? My keyboard keeps adding a dot instead.",
+            f"So {fact_value}... I typed it but it says 'beneficiary not found.' Can you spell it one more time?",
+        ]
+        
+        phone_mirrors = [
+            f"You said the number is {fact_value}, right? I'm getting a 'not reachable' message.",
+            f"Wait, {fact_value}... is that with +91 or without? It's dialing but nobody picks up.",
+            f"I wrote down {fact_value} but my caller ID shows it as a 'Private Number.' Is that normal?",
+            f"Let me confirm, {fact_value}... the last 4 digits are {fact_value[-4:]}, right? I want to make sure.",
+        ]
+        
+        link_mirrors = [
+            f"You said to open {fact_value}, right? It's loading but the padlock icon is missing. Is it safe?",
+            f"Wait, {fact_value} — is it .com or .in at the end? My browser is showing a warning.",
+            f"I went to {fact_value} but it doesn't have the bank logo on top. Are you sure this is correct?",
+            f"So {fact_value}... it opened but the name in the address bar looks different. Is this the official site?",
+        ]
+        
+        account_mirrors = [
+            f"You said {fact_value}, right? That's a long number, let me read it back to you to confirm.",
+            f"Wait, {fact_value}... I wrote it on paper but one digit might be wrong. Can you repeat slowly?",
+            f"I have {fact_value} but that doesn't match the account number on my passbook. Is this yours or mine?",
+        ]
+        
+        mirror_map = {
+            "upi": upi_mirrors,
+            "phone": phone_mirrors,
+            "link": link_mirrors,
+            "bank_account": account_mirrors,
+        }
+        
+        candidates = mirror_map.get(fact_type, [])
+        if not candidates:
+            return f"You said {fact_value}, right? Can you confirm that once more?"
+        
+        return random.choice(candidates)
+
+    # =========================
+    # FIX BLOCK 3: State Persistence — Used_Tactics Rotation
+    # =========================
+    def record_tactic(self, category: str, text: str) -> None:
+        """Record a tactic that was used, with its category.
+        Categories: 'confusion', 'skeptical', 'slow_compliance'"""
+        self.used_tactics.append({"category": category, "text": text})
+        self.last_tactic_category = category
+
+    def was_tactic_text_used(self, text: str) -> bool:
+        """Check if a specific tactic text was already used."""
+        return any(t["text"].lower() == text.lower() for t in self.used_tactics)
+
+    def get_next_tactic_category(self) -> str:
+        """Determine the next tactic category based on the State Persistence rule.
+        If last was 'confusion' -> must use 'skeptical' or 'slow_compliance'.
+        If last was 'skeptical' -> can use 'confusion' or 'slow_compliance'.
+        If last was 'slow_compliance' -> can use 'confusion' or 'skeptical'."""
+        if not self.last_tactic_category:
+            return random.choice(["confusion", "skeptical", "slow_compliance"])
+        
+        all_categories = ["confusion", "skeptical", "slow_compliance"]
+        allowed = [c for c in all_categories if c != self.last_tactic_category]
+        return random.choice(allowed)
+
+    def get_next_tactic(self) -> Dict[str, str]:
+        """Get the next tactic from the correct category, ensuring no repetition.
+        Returns {"category": str, "text": str}."""
+        category = self.get_next_tactic_category()
+        
+        confusion_tactics = [
+            "Where exactly on the page is the button you mentioned?",
+            "I see two fields here, which one is for the OTP?",
+            "The app is asking for something called 'VPA.' What is that?",
+            "There's a dropdown menu, which option do I select?",
+            "The page just refreshed. Where do I go now?",
+            "I see a green and a red button. Which one is proceed?",
+            "It's asking for a 4-digit PIN but you said 6-digit. Which is it?",
+        ]
+        
+        skeptical_tactics = [
+            "Why does a bank need my UPI PIN? My son said banks never ask for that.",
+            "Why can't I just go to the branch and do this in person?",
+            "My neighbor got a call like this and it was fraud. How do I know you're real?",
+            "Why isn't this on the official bank app? I don't see any alert there.",
+            "If this is really the bank, why are you calling from a mobile number?",
+            "Why do you need my OTP? The SMS says 'do not share with anyone.'",
+            "Can you tell me my account balance? If you're from the bank, you should know.",
+        ]
+        
+        slow_compliance_tactics = [
+            "I'm looking for my reading glasses, give me a minute.",
+            "I'm typing it now but my fingers are slow, please hold on.",
+            "Let me find a pen and paper first, I need to write this down.",
+            "Wait, I need to put on my glasses, everything is blurry.",
+            "I'm moving to another room, the signal is better there. One moment.",
+            "My phone is old and slow, the app is still loading. Please wait.",
+            "I'm trying, but the keyboard keeps disappearing. Give me a second, I think I'm hitting the wrong button.",
+        ]
+        
+        tactic_map = {
+            "confusion": confusion_tactics,
+            "skeptical": skeptical_tactics,
+            "slow_compliance": slow_compliance_tactics,
+        }
+        
+        candidates = tactic_map.get(category, confusion_tactics)
+        # Filter out already-used tactics
+        unused = [t for t in candidates if not self.was_tactic_text_used(t)]
+        if not unused:
+            unused = candidates  # All used, reset
+        
+        chosen = random.choice(unused)
+        self.record_tactic(category, chosen)
+        return {"category": category, "text": chosen}
 
     # =========================
     # Reporting
