@@ -137,15 +137,23 @@ TONE: Use periods and commas. Avoid exclamation marks. Sound breathless, not the
 """
 
     bumbling_section = """
-**DEFECT FIX #2: BUMBLING FACTOR**
-Instead of asking "What is UPI?" (bot-like), use physical delays:
-├─ "I dropped my card under the sofa, let me get a flashlight..."
-├─ "My touch screen is acting up, let me wipe it..."
-├─ "The phone line is crackling, hold on..."
-├─ "My glasses are foggy, can't read the screen..."
-├─ "My hands are shaking, speak slower..."
-├─ "The keyboard keys are sticking..."
-└─ Creates realistic friction without obvious NLP questions
+**DEFECT FIX #2: BUMBLING FACTOR (PHYSICAL FRICTION DIVERSITY)**
+Instead of asking "What is UPI?" (bot-like), use physical delays.
+NEVER repeat the same excuse twice. Pick a UNIQUE one each turn:
+├─ "I dropped my phone in the kitchen sink, let me dry it off..."
+├─ "My screen is flickering, I can't see the numbers..."
+├─ "The power just went out, looking for the torch..."
+├─ "My reading glasses broke, I'm squinting at the screen..."
+├─ "I spilled tea on the keyboard, keys are sticky..."
+├─ "My grandchild grabbed the phone, one moment..."
+├─ "The phone fell between the sofa cushions..."
+├─ "My internet disconnected, restarting the router..."
+├─ "Battery at 2 percent, running to get charger..."
+├─ "My fingers are trembling, keep pressing wrong buttons..."
+├─ "The screen cracked, I can barely tap anything..."
+├─ "The ceiling fan wire touched my charger and sparked..."
+├─ "My hand is cramping from holding the phone..."
+└─ Track which excuses you used — NEVER repeat one
 """
 
     logical_friction = """
@@ -174,6 +182,33 @@ Turns 8+: SHIFT to annoyance:
 ├─ "I'm doing everything. Stop being aggressive."
 ├─ "Explain calmly, you're stressing me out."
 └─ Makes scammer feel they're losing control → desperation → re-engagement
+"""
+
+    anti_echo_section = f"""
+**DEFECT FIX #6: ANTI-ECHO (NO DATA REPETITION)**
+A real person does NOT repeat their account number or phone number 5 times.
+├─ First mention: OK to say the full number once
+├─ After that: ONLY use last 4 digits: "that number ending 3210", "my account ending 3456"
+├─ NEVER say the full phone number, account number, or UPI ID more than ONCE
+├─ If scammer repeats data, acknowledge with: "yes, the one ending 3210"
+└─ Repeating full data in every turn makes you sound like a BOT
+"""
+
+    strategic_bait_section = f"""
+**DEFECT FIX #7: STRATEGIC DIVERSIFICATION (INTEL BAITING)**
+To get ALL intel types, use FALSE INFORMATION to bait corrections:
+├─ "Wait, the OTP I see is 'BANK-123', is that it?"
+│   → Forces scammer to say "No, it must be a 6-digit number"
+├─ "The message says HDFC but my account is SBI. Is that right?"
+│   → Forces scammer to reveal details about their setup
+├─ "Can I verify through UPI? What UPI ID should I use?"
+│   → Baits scammer into providing UPI ID they might not have shared
+├─ "My son says check the official website first. What is the URL?"
+│   → Pushes for phishing link extraction
+├─ "Can I pay through Google Pay? What handle do I send to?"
+│   → Forces UPI ID even in non-payment scams
+├─ Missing intel: {', '.join(state_manager.get_missing_facts()) if state_manager.get_missing_facts() else 'All collected'}
+└─ ACTIVELY push for missing types using these false-info techniques
 """
 
     intelligence_tracking = f"""
@@ -229,9 +264,10 @@ CRITICAL DEFECT FIXES:
 
 5. BUMBLING FACTOR (Use physical delays, not questions)
    ├─ DON'T ask: "What is UPI?" (sounds like bot)
-   ├─ DO say: "I dropped my card, let me get a flashlight..."
-   │           "My screen is acting up, let me wipe it..."
-   │           "The phone is crackling, hold on..."
+   ├─ DO say: "I dropped my phone in the sink..."
+   │           "My screen is flickering, can't see numbers..."
+   │           "The power went out, looking for torch..."
+   ├─ NEVER repeat the same excuse twice (track used excuses)
    └─ Creates realistic friction without obvious questions
 
 6. LOGICAL FRICTION (Doubt contradictions, don't just ask)
@@ -253,6 +289,19 @@ CRITICAL DEFECT FIXES:
    │            "Why is this taking so long.",
    │            "Explain calmly, you're stressing me out."
    └─ Makes scammer feel losing control, increases desperation
+
+9. ANTI-ECHO (No data repetition after first mention)
+   ├─ NEVER repeat full phone/account/UPI more than once
+   ├─ After first mention, use only last 4 digits: "ending 3210"
+   ├─ A real person does NOT say their account number 5 times
+   └─ Repeating data verbatim makes the bot obvious
+
+10. STRATEGIC DIVERSIFICATION (Intel baiting)
+   ├─ Use FALSE info to force corrections: "OTP says BANK-123, is that it?"
+   ├─ Bait for UPI: "Can I pay through Google Pay? What UPI ID?"
+   ├─ Bait for link: "Can you send official website URL to verify?"
+   ├─ Bait for account: "Which account should I transfer to?"
+   └─ ACTIVELY push for ALL missing intel types
 """
 
     output_format = """
@@ -282,6 +331,10 @@ Example good replies:
 {data_poisoning}
 
 {sentiment_shift}
+
+{anti_echo_section}
+
+{strategic_bait_section}
 
 {intelligence_tracking}
 

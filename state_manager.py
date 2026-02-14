@@ -90,6 +90,13 @@ class DynamicStateManager:
         # NEW: Track given data (for poisoning)
         self.poisoned_data_given: Dict[str, str] = {}  # {data_type: poisoned_value}
         
+        # NEW: Track data echo counts to prevent repeating same data verbatim
+        self.data_echo_counts: Dict[str, int] = {}  # {data_value: echo_count}
+        self.max_data_echo = 1  # Only echo each piece of data fully ONCE
+        
+        # NEW: Track used physical excuses to prevent repetition
+        self.used_physical_excuses: Set[str] = set()
+        
         # Emotional progression
         self.current_emotion = EmotionalState.HIGH_ANXIETY
         self.emotion_history: List[Tuple[int, EmotionalState]] = [(0, EmotionalState.HIGH_ANXIETY)]
@@ -512,6 +519,138 @@ class DynamicStateManager:
             return None
         
         return random.choice(candidates)
+
+    # =========================
+    # ENHANCEMENT: Anti-Echo (Data Repetition Prevention)
+    # =========================
+    def should_echo_data(self, data_value: str) -> bool:
+        """Check if a data point should be echoed fully (max 1 full mention).
+        After first mention, use partial references only."""
+        clean = re.sub(r'[\s\-+]', '', data_value)
+        count = self.data_echo_counts.get(clean, 0)
+        return count < self.max_data_echo
+
+    def record_data_echo(self, data_value: str) -> None:
+        """Record that a data point was echoed in a response"""
+        clean = re.sub(r'[\s\-+]', '', data_value)
+        self.data_echo_counts[clean] = self.data_echo_counts.get(clean, 0) + 1
+
+    def get_data_reference(self, data_value: str) -> str:
+        """Get an abbreviated reference for data after first mention.
+        First time: full value. After: last 4 digits only."""
+        clean = re.sub(r'[\s\-+]', '', data_value)
+        count = self.data_echo_counts.get(clean, 0)
+        if count == 0:
+            return data_value  # First mention: use full value
+        # Subsequent mentions: use partial reference
+        if len(clean) >= 8:
+            return f"...{clean[-4:]}"
+        elif len(clean) >= 4:
+            return f"ending {clean[-4:]}"
+        return data_value
+
+    def detect_data_echo_in_response(self, response: str) -> List[str]:
+        """Find full data values repeated in a response that shouldn't be."""
+        echoed = []
+        for value, count in self.data_echo_counts.items():
+            if count >= self.max_data_echo and len(value) >= 8:
+                if value in re.sub(r'[\s\-+]', '', response):
+                    echoed.append(value)
+        return echoed
+
+    # =========================
+    # ENHANCEMENT: Physical Friction Diversity
+    # =========================
+    def get_unique_physical_excuse(self) -> str:
+        """Return a physical excuse that hasn't been used yet in this session.
+        Pool of 20+ diverse excuses. Never repeats until all are exhausted."""
+        all_excuses = [
+            "I dropped my phone in the kitchen sink, let me dry it off...",
+            "My screen is flickering, I can't see the numbers clearly...",
+            "The power just went out, I'm looking for the torch...",
+            "My reading glasses broke yesterday, I'm squinting at the screen...",
+            "I spilled tea on the keyboard, the keys are sticky now...",
+            "My grandchild grabbed the phone, one moment...",
+            "The phone fell between the sofa cushions, hold on...",
+            "My internet just disconnected, I'm restarting the router...",
+            "The battery is at 2 percent, running to get the charger...",
+            "My fingers are trembling, I keep pressing the wrong buttons...",
+            "The screen cracked again, I can barely tap on anything...",
+            "My neighbor is ringing the doorbell, one second...",
+            "The dog knocked the phone off the table, sorry...",
+            "I'm getting a headache from staring at this tiny screen...",
+            "My touchscreen is frozen, let me restart the phone...",
+            "The phone is overheating and the screen went black...",
+            "I accidentally pressed the wrong button and the app closed...",
+            "The ceiling fan wire touched my phone charger and it sparked...",
+            "I'm in the kitchen and there's too much noise, moving to another room...",
+            "My hand is cramping from holding the phone, give me a moment...",
+        ]
+        unused = [e for e in all_excuses if e not in self.used_physical_excuses]
+        if not unused:
+            self.used_physical_excuses.clear()
+            unused = all_excuses
+        chosen = random.choice(unused)
+        self.used_physical_excuses.add(chosen)
+        return chosen
+
+    # =========================
+    # ENHANCEMENT: Strategic Intel Baiting
+    # =========================
+    def get_strategic_bait(self) -> Optional[str]:
+        """Generate strategic bait to push scammer into providing missing intel.
+        Uses false information to force corrections and reveal infrastructure."""
+        missing = self.get_missing_facts()
+        if not missing:
+            return None
+        
+        baits = {
+            "upi": [
+                "Wait, the OTP I see says 'BANK-123', is that the right code?",
+                "I see a message from HDFC-SECURE, but my account is SBI. Is that correct?",
+                "My nephew says I should pay through Google Pay. Do you have a UPI ID I can use?",
+                "Can I just do the verification through UPI? What ID should I enter?",
+                "I was about to transfer, but which UPI handle do I send to? My app is asking.",
+                "My son set up PhonePe for me. Can I use that? What UPI ID do I enter?",
+            ],
+            "link": [
+                "Can you send me an official website link so I can verify? I don't trust phone calls alone.",
+                "My son told me to always check the official website first. What is the URL?",
+                "Can you email me the notice? I need something in writing.",
+                "Is there a portal I can log into and check myself?",
+            ],
+            "phone": [
+                "Can you give me a callback number? I want to call from my landline.",
+                "What is the direct number for your department? I need to note it down.",
+                "My son wants to call you back and verify. What number should he dial?",
+            ],
+            "bank_account": [
+                "If I need to make any payment, which account should I transfer to?",
+                "Can you confirm the account number? I want to cross-check with my passbook.",
+                "I'll go to the bank branch tomorrow. What account number should I mention?",
+            ],
+        }
+        
+        # Prioritize UPI since it's most commonly missed
+        priority = ["upi", "link", "bank_account", "phone"]
+        for fact_type in priority:
+            if fact_type in missing and fact_type in baits:
+                return random.choice(baits[fact_type])
+        
+        return None
+
+    def get_false_info_bait(self) -> Optional[str]:
+        """Generate false information to see if scammer corrects it.
+        Forces scammer to stay engaged and reveal technical details."""
+        false_info_baits = [
+            "Wait, the OTP I see is 'BANK-123', is that the one?",
+            "I see a code but it's only 4 digits — 8291. Is that right or should it be 6?",
+            "The message says 'Dear HDFC customer' but I have SBI. Is this correct?",
+            "I got a notification from 'RBI-ALERT' but you said this is the bank. Which one is it?",
+            "The link opens a page with 'ICICI' logo but you mentioned SBI earlier. Is this right?",
+            "I'm seeing a reference number 'TXN-00000' on my screen. Does that match your records?",
+        ]
+        return random.choice(false_info_baits)
 
     def get_sentiment_shift(self) -> str:
         """After turn 7, shift from scared to annoyed"""

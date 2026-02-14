@@ -22,17 +22,18 @@ class IntelligenceExtractor:
         # Regex patterns for extraction
         self.patterns = {
             "bank_account": [
-                re.compile(r'\b\d{9,18}\b'),
-                re.compile(r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'),
+                re.compile(r'\b\d{11,16}\b'),  # Primary: 11-16 digits (standard bank accounts)
+                re.compile(r'\b\d{9,18}\b'),    # Broader: 9-18 digits catch-all
+                re.compile(r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'),  # Card format
             ],
             "upi_id": [
                 re.compile(r'\b([a-zA-Z0-9._-]+@(?:ybl|paytm|okaxis|okhdfcbank|oksbi|upi|apl|axl|ibl|sbi|icici|hdfc))\b', re.IGNORECASE),
-                # Catch-all: any word@word that isn't a standard email domain
-                re.compile(r'\b([a-zA-Z0-9._-]+@(?!(?:gmail|yahoo|hotmail|outlook|rediffmail|protonmail|mail|email|live|aol|icloud|zoho|yandex)\b)[a-zA-Z0-9_-]+)\b(?!\.(?:com|in|org|net|co|edu|gov))', re.IGNORECASE),
+                # Broadened catch-all: any handle@provider (2-256 chars @ 2-64 chars)
+                re.compile(r'\b([a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64})\b(?!\.(?:com|in|org|net|co|edu|gov))', re.IGNORECASE),
             ],
             "phone_number": [
                 re.compile(r'\+91[\s-]?\d{10}\b'),
-                re.compile(r'\b[6-9]\d{9}\b'),
+                re.compile(r'(\+91[\-\s]?)?[6-9]\d{9}', re.IGNORECASE),
                 re.compile(r'\b\d{3}[\s-]?\d{3}[\s-]?\d{4}\b'),
             ],
             "url": [
@@ -150,15 +151,29 @@ class IntelligenceExtractor:
         return list(accounts)
     
     def _extract_upi_ids(self, text: str) -> List[str]:
-        """Extract UPI IDs"""
+        """Extract UPI IDs using broadened regex that catches non-standard formats"""
         upi_ids = set()
+        # Known email domains to exclude from UPI detection
+        email_domains = {
+            'gmail', 'yahoo', 'hotmail', 'outlook', 'rediffmail', 'protonmail',
+            'mail', 'email', 'live', 'aol', 'icloud', 'zoho', 'yandex',
+        }
         for pattern in self.patterns["upi_id"]:
             matches = pattern.findall(text)
             for match in matches:
                 if isinstance(match, tuple):
                     match = '@'.join(match) if len(match) > 1 else match[0]
-                if '@' in str(match) and not str(match).endswith('.com'):
-                    upi_ids.add(str(match).lower())
+                match_str = str(match).strip()
+                if '@' not in match_str:
+                    continue
+                # Filter out standard email addresses (word@domain.com/.in/.org etc)
+                if match_str.endswith('.com') or match_str.endswith('.in') or match_str.endswith('.org') or match_str.endswith('.net'):
+                    continue
+                # Filter out known email provider domains
+                domain_part = match_str.split('@')[1].lower() if '@' in match_str else ''
+                if domain_part in email_domains:
+                    continue
+                upi_ids.add(match_str.lower())
         return list(upi_ids)
     
     def _extract_phone_numbers(self, text: str) -> List[str]:

@@ -11,6 +11,7 @@ Goals:
 
 import json
 import re
+import random
 from typing import Any, Dict, List, Optional
 
 from groq import Groq
@@ -265,6 +266,47 @@ class GroqHandler:
             base.append(f"- Turn: {turn_count}")
             base.append(f"- Fact Categories Obtained: {', '.join(state_mgr.received_fact_types) if state_mgr.received_fact_types else 'None yet'}")
             base.append(f"- Missing Fact Types: {', '.join(state_mgr.get_missing_facts())}")
+            
+            # NEW: Anti-Echo Rule — prevent repeating data verbatim
+            base.append("")
+            base.append("ANTI-ECHO RULE (CRITICAL):")
+            base.append("- NEVER repeat a phone number, account number, or UPI ID in full after the first mention.")
+            base.append("- After first mention, refer to data by LAST 4 DIGITS ONLY: 'that number ending 3210', 'my account ending 3456'.")
+            base.append("- A real person does NOT say their full account number 5 times. It sounds robotic.")
+            base.append("- If you already mentioned +919876543210, say 'that number ending 3210' next time.")
+            base.append("- If you already mentioned 1234567890123456, say 'my account ending 3456' next time.")
+            if state_mgr.data_echo_counts:
+                echoed_items = [f"{v} (mentioned {c}x)" for v, c in state_mgr.data_echo_counts.items() if c >= 1]
+                if echoed_items:
+                    base.append(f"- Already mentioned fully: {', '.join(echoed_items[:5])} — use partial refs only.")
+            
+            # NEW: Physical Friction Diversity
+            base.append("")
+            base.append("PHYSICAL FRICTION DIVERSITY:")
+            base.append("- NEVER use the same technical excuse twice (e.g., 'app not loading' twice).")
+            base.append("- Use PHYSICAL excuses: dropped phone, screen cracked, spilled tea, glasses broke, power cut.")
+            base.append("- Each turn must have a DIFFERENT physical excuse if you need a delay tactic.")
+            if state_mgr.used_physical_excuses:
+                base.append(f"- Already used (DO NOT repeat): {', '.join(list(state_mgr.used_physical_excuses)[:5])}")
+            excuse_suggestion = state_mgr.get_unique_physical_excuse()
+            base.append(f"- Suggested next excuse: '{excuse_suggestion}'")
+            
+            # NEW: Strategic Intel Baiting
+            missing = state_mgr.get_missing_facts()
+            if missing:
+                base.append("")
+                base.append("STRATEGIC INTEL BAITING (HIGH PRIORITY):")
+                base.append(f"- You are MISSING these intel types: {', '.join(missing)}")
+                base.append("- You MUST actively push the scammer to provide missing intel.")
+                base.append("- Use FALSE INFORMATION to force corrections:")
+                bait = state_mgr.get_strategic_bait()
+                if bait:
+                    base.append(f"  Example bait: '{bait}'")
+                false_info = state_mgr.get_false_info_bait()
+                if false_info:
+                    base.append(f"  False info bait: '{false_info}'")
+                base.append("- Mention wrong bank name, wrong OTP format, or ask 'Can I pay via UPI?' to fish for UPI ID.")
+                base.append("- If scammer mentions money, ALWAYS ask 'which UPI ID?' or 'which account number?'")
         else:
             base.append("")
             base.append(f"Turn: {turn_count}")
@@ -394,6 +436,21 @@ class GroqHandler:
         if allow_payment:
             moves.append("Ask which UPI ID / account details to pay to and what the beneficiary name is.")
 
+        # STRATEGIC BAITING: Push for missing intel types
+        session_id = getattr(session, 'session_id', 'unknown')
+        state_mgr = self._get_or_create_state_manager(session_id)
+        missing_facts = state_mgr.get_missing_facts()
+        
+        if "upi" in missing_facts:
+            moves.append("Bait for UPI: Say 'My nephew uses Google Pay, can I verify through UPI? What UPI ID?' or 'Can I pay through PhonePe? What ID should I use?'")
+            moves.append("Offer false info: 'The OTP says BANK-123, is that it?' to force scammer to clarify, then ask 'Can I just send through UPI instead?'")
+        
+        if "link" in missing_facts:
+            moves.append("Push for link/email: 'Can you send me an official website link to verify? I don't trust phone calls alone.' or 'My son says check official website first, what is the URL?'")
+        
+        if "bank_account" in missing_facts and allow_payment:
+            moves.append("Push for bank account: 'If I need to transfer, what account number to? I need to go to the bank branch.'")
+
         # Scam-type hints.
         if scam_type == "impersonation_threat":
             moves.append("Ask which police station/court/case number and request a copy of the notice.")
@@ -486,8 +543,11 @@ class GroqHandler:
         prev_bot_texts = self._get_prev_bot_texts(conversation_history, limit=6)
         last_bot = prev_bot_texts[-1] if prev_bot_texts else ""
 
-        # 1) Avoid "UPI obsession" unless allowed
-        if not strategy.get("allow_payment_questions", False):
+        # 1) Avoid "UPI obsession" unless allowed or we're in strategic baiting mode
+        # After 4+ turns, allow UPI mentions as strategic baiting to extract scammer intel
+        turn_count = len(prev_bot_texts)
+        strategic_baiting_active = turn_count >= 4
+        if not strategy.get("allow_payment_questions", False) and not strategic_baiting_active:
             if re.search(r"\bupi\b|\bverification amount\b|\bpay\b|\bfee\b", reply, re.IGNORECASE):
                 # Replace with link/phone/account based move.
                 print("[GROQ-GUARDRAIL] UPI obsession blocked, using non-payment fallback")
@@ -520,15 +580,24 @@ class GroqHandler:
         # 1d) If we asked for a case/reference number last time and scammer ignored, persist.
         # BUT: If scammer introduced a NEW topic (payment/transfer/UPI), engage with THAT instead.
         #      This prevents Logic Reset where bot ignores a ₹1 transfer to ask for case number.
+        # LIMIT: Only persist for max 2 consecutive turns. After that, move on to
+        #         strategic baiting / different engagement to avoid infinite loop.
         scammer_introduced_new_topic = bool(
             re.search(r"\b(upi|pay|payment|transfer|fee|fine|amount|rs\.?|inr|rupees?|\₹)\b", scammer_message, re.IGNORECASE)
             or re.search(r"\b([a-zA-Z0-9._-]+@[a-zA-Z0-9_-]+)\b", scammer_message)
         )
         if re.search(r"\b(case|reference)\b", last_bot, re.IGNORECASE):
             if not re.search(r"\b(case|reference|ref)\b", scammer_message, re.IGNORECASE) and not scammer_introduced_new_topic:
-                return self._truncate_to_two_sentences(
-                    "I still need the case/reference number to proceed. Please share that first so I can verify."
+                # Count how many recent bot turns already asked for case/reference
+                case_persist_count = sum(
+                    1 for p in prev_bot_texts[-4:]
+                    if re.search(r"\bcase.{0,10}reference|reference.{0,10}number\b", p, re.IGNORECASE)
                 )
+                if case_persist_count < 2:
+                    return self._truncate_to_two_sentences(
+                        "I still need the case/reference number to proceed. Please share that first so I can verify."
+                    )
+                # After 2 persists, fall through to let strategic baiting / other guardrails take over
 
         # 2) Avoid repeating previous replies (quick heuristic)
         low = reply.lower()
@@ -552,6 +621,28 @@ class GroqHandler:
                     question = state_mgr.get_fact_validation_question(fact_type, val)
                     if question and not self._mentions_any_fact(reply, scammer_facts):
                         return self._truncate_to_two_sentences(question)
+
+        # 5) ANTI-ECHO: Strip full data values that have already been echoed
+        if state_mgr:
+            reply = self._strip_data_echoes(reply, state_mgr)
+
+        # 6) STRATEGIC BAITING: If reply doesn't push for missing intel, append bait
+        if state_mgr:
+            missing = state_mgr.get_missing_facts()
+            if missing and len(reply) < 150:
+                # Check if reply already pushes for missing intel
+                pushes_for_missing = False
+                low = reply.lower()
+                if "upi" in missing and re.search(r'\bupi\b|\bgoogle pay\b|\bphonepe\b', low):
+                    pushes_for_missing = True
+                if "link" in missing and re.search(r'\bwebsite\b|\burl\b|\blink\b|\bemail\b', low):
+                    pushes_for_missing = True
+                if "bank_account" in missing and re.search(r'\baccount\b.*\bnumber\b', low):
+                    pushes_for_missing = True
+                if not pushes_for_missing and random.random() < 0.4:
+                    bait = state_mgr.get_strategic_bait()
+                    if bait:
+                        reply = self._truncate_to_two_sentences(reply + " " + bait)
 
         return reply
 
@@ -602,11 +693,12 @@ class GroqHandler:
 
         if scammer_facts.get("bank_accounts"):
             acct = scammer_facts["bank_accounts"][0]
+            acct_partial = acct[-4:] if len(acct) > 4 else acct
             candidates.extend(
                 [
-                    f"You said account {acct}, but that doesn't match mine. Can you confirm the last 4 digits you have on record for me?",
-                    f"Wait, repeat the account number {acct} slowly, I'm writing it down. Which bank/branch is this linked to?",
-                    f"I entered {acct} and it says invalid. Can you tell me the bank name and your employee ID so I can verify?",
+                    f"You mentioned the account ending {acct_partial}, but that doesn't match mine. Can you confirm the last 4 digits you have on record for me?",
+                    f"Wait, repeat the account number ending {acct_partial} slowly, I'm writing it down. Which bank/branch is this linked to?",
+                    f"I entered the number ending {acct_partial} and it says invalid. Can you tell me the bank name and your employee ID so I can verify?",
                 ]
             )
 
@@ -625,6 +717,21 @@ class GroqHandler:
                 "I'm trying again but nothing is coming. Are you sure you have my correct registered number on your screen?",
                 "This is stressing me out. Can you give me the official helpline number so I can verify this block?",
             ]
+
+        # STRATEGIC BAITING: Always mix in UPI/link/account bait candidates
+        # These push the scammer to provide missing intel types.
+        strategic_baits = [
+            "Can I just do this verification through UPI instead? What UPI ID should I use?",
+            "My son set up PhonePe for me. If I need to pay, what UPI ID do I enter?",
+            "Can you send me a link or email so I can verify this on the official website?",
+            "I don't understand all this OTP business. Can I just transfer the amount through Google Pay? What is your UPI?",
+            "My daughter says I should only do this on the official bank website. Can you share the URL?",
+            "Wait, I saw something on my screen that says 'BANK-REF-4829'. Is that the reference number?",
+        ]
+        # Add baits that aren't too similar to what we already have
+        for bait in strategic_baits:
+            if not any(self._similar(bait.lower(), c.lower()) for c in candidates):
+                candidates.append(bait)
 
         # Prefer a candidate that isn't too similar to what we already said.
         for c in candidates:
@@ -690,6 +797,40 @@ class GroqHandler:
         if len(parts) <= 2:
             return text.strip()
         return " ".join(parts[:2]).strip()
+
+    def _strip_data_echoes(self, reply: str, state_mgr: DynamicStateManager) -> str:
+        """Replace full data values with partial references after first echo.
+        Prevents the bot from repeating '1234567890123456' or '+919876543210' every turn."""
+        modified = reply
+        # Check all data points that have been echoed at least once
+        for data_val, count in list(state_mgr.data_echo_counts.items()):
+            if count >= state_mgr.max_data_echo and len(data_val) >= 8:
+                # Check if this value (or formatted versions) appears in the reply
+                # Try raw digits
+                if data_val in re.sub(r'[\s\-+]', '', modified):
+                    partial = state_mgr.get_data_reference(data_val)
+                    # Replace various formatted versions of the number
+                    # Phone: +91-9876543210, +919876543210, 9876543210
+                    # Account: 1234567890123456
+                    patterns_to_try = [
+                        re.escape(data_val),
+                        # With +91 prefix
+                        r'\+91[\s-]?' + re.escape(data_val[-10:]) if len(data_val) >= 10 else None,
+                        # With spaces/dashes
+                        r'[\s-]?'.join(re.escape(c) for c in data_val) if len(data_val) <= 16 else None,
+                    ]
+                    for pat in patterns_to_try:
+                        if pat:
+                            modified = re.sub(pat, partial, modified)
+
+        # Track any full data values that remain in this response
+        for fact_type, values in state_mgr._extract_facts_from_message(reply).items():
+            for val in values:
+                clean_val = re.sub(r'[\s\-+]', '', val)
+                if len(clean_val) >= 8:
+                    state_mgr.record_data_echo(clean_val)
+
+        return modified
 
     def _similar(self, a: str, b: str) -> bool:
         # cheap similarity: shared long substring or very high overlap
