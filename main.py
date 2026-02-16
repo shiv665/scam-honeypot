@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Header, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from models import IncomingRequest, AgentResponse
 from honeypot import honeypot_handler
@@ -118,6 +119,9 @@ async def send_guvi_callback_if_ready(session_id: str):
         # Generate agent notes using stored tactics
         agent_notes = guvi_callback.generate_agent_notes(session, tactics)
         
+        # Calculate engagement duration in seconds
+        engagement_duration = (datetime.now() - session.created_at).total_seconds()
+        
         # Check if we have all intel for this callback
         intel = session.extracted_intelligence
         has_all_intel = (
@@ -133,7 +137,8 @@ async def send_guvi_callback_if_ready(session_id: str):
             scam_detected=session.scam_detected,
             total_messages=session.total_messages,
             intelligence=session.extracted_intelligence,
-            agent_notes=agent_notes
+            agent_notes=agent_notes,
+            engagement_duration_seconds=engagement_duration
         )
         
         if success:
@@ -275,12 +280,16 @@ async def trigger_callback(
         
         agent_notes = guvi_callback.generate_agent_notes(session, tactics)
         
+        # Calculate engagement duration in seconds
+        engagement_duration = (datetime.now() - session.created_at).total_seconds()
+        
         success = await guvi_callback.send_callback(
             session_id=session.session_id,
             scam_detected=session.scam_detected,
             total_messages=session.total_messages,
             intelligence=session.extracted_intelligence,
-            agent_notes=agent_notes
+            agent_notes=agent_notes,
+            engagement_duration_seconds=engagement_duration
         )
         
         if success:

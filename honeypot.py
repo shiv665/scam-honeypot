@@ -194,6 +194,7 @@ class HoneypotHandler:
                 "upiIds": session.extracted_intelligence.upiIds,
                 "phoneNumbers": session.extracted_intelligence.phoneNumbers,
                 "phishingLinks": session.extracted_intelligence.phishingLinks,
+                "emailAddresses": session.extracted_intelligence.emailAddresses,
                 "suspiciousKeywords": session.extracted_intelligence.suspiciousKeywords,
             }
         }

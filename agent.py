@@ -207,6 +207,9 @@ class ConversationAgent:
             for link in intelligence.phishingLinks:
                 if link not in existing.phishingLinks:
                     existing.phishingLinks.append(link)
+            for email in intelligence.emailAddresses:
+                if email not in existing.emailAddresses:
+                    existing.emailAddresses.append(email)
             for kw in intelligence.suspiciousKeywords:
                 if kw not in existing.suspiciousKeywords:
                     existing.suspiciousKeywords.append(kw)

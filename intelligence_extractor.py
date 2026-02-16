@@ -91,14 +91,14 @@ class IntelligenceExtractor:
                 intelligence.upiIds.extend(upi_ids)
                 intelligence.phoneNumbers.extend(phone_nums)
                 intelligence.phishingLinks.extend(phish_links)
-                # Emails go into phishingLinks as per requirement
-                intelligence.phishingLinks.extend(emails)
+                intelligence.emailAddresses.extend(emails)
         
         # Remove duplicates while preserving order
         intelligence.bankAccounts = list(dict.fromkeys(intelligence.bankAccounts))
         intelligence.upiIds = list(dict.fromkeys(intelligence.upiIds))
         intelligence.phoneNumbers = list(dict.fromkeys(intelligence.phoneNumbers))
         intelligence.phishingLinks = list(dict.fromkeys(intelligence.phishingLinks))
+        intelligence.emailAddresses = list(dict.fromkeys(intelligence.emailAddresses))
         
         # Extract suspicious keywords
         intelligence.suspiciousKeywords = self._extract_keywords(all_text)
@@ -252,6 +252,7 @@ class IntelligenceExtractor:
             upiIds=list(set(intel1.upiIds + intel2.upiIds)),
             phoneNumbers=list(set(intel1.phoneNumbers + intel2.phoneNumbers)),
             phishingLinks=list(set(intel1.phishingLinks + intel2.phishingLinks)),
+            emailAddresses=list(set(intel1.emailAddresses + intel2.emailAddresses)),
             suspiciousKeywords=list(set(intel1.suspiciousKeywords + intel2.suspiciousKeywords)),
         )
 

@@ -4,8 +4,9 @@ Sends final result to GUVI evaluation endpoint
 """
 import aiohttp
 import asyncio
+from datetime import datetime
 from typing import Optional
-from models import ExtractedIntelligence, GuviCallbackPayload, SessionState
+from models import ExtractedIntelligence, EngagementMetrics, GuviCallbackPayload, SessionState
 
 
 GUVI_CALLBACK_URL = "https://hackathon.guvi.in/api/updateHoneyPotFinalResult"
@@ -25,7 +26,8 @@ class GuviCallbackHandler:
                             scam_detected: bool,
                             total_messages: int,
                             intelligence: ExtractedIntelligence,
-                            agent_notes: str) -> bool:
+                            agent_notes: str,
+                            engagement_duration_seconds: float = 0) -> bool:
         """
         Send final result to GUVI evaluation endpoint.
         
@@ -35,15 +37,23 @@ class GuviCallbackHandler:
             total_messages: Total messages exchanged
             intelligence: Extracted intelligence
             agent_notes: Summary of scammer behavior
+            engagement_duration_seconds: Duration of engagement in seconds
             
         Returns:
             True if callback was successful
         """
+        engagement_metrics = EngagementMetrics(
+            totalMessagesExchanged=total_messages,
+            engagementDurationSeconds=engagement_duration_seconds
+        )
+        
         payload = GuviCallbackPayload(
             sessionId=session_id,
+            status="completed",
             scamDetected=scam_detected,
             totalMessagesExchanged=total_messages,
             extractedIntelligence=intelligence,
+            engagementMetrics=engagement_metrics,
             agentNotes=agent_notes
         )
         
@@ -70,7 +80,8 @@ class GuviCallbackHandler:
                            scam_detected: bool,
                            total_messages: int,
                            intelligence: ExtractedIntelligence,
-                           agent_notes: str) -> bool:
+                           agent_notes: str,
+                           engagement_duration_seconds: float = 0) -> bool:
         """Synchronous version of send_callback"""
         try:
             loop = asyncio.get_event_loop()
@@ -79,7 +90,7 @@ class GuviCallbackHandler:
             asyncio.set_event_loop(loop)
         
         return loop.run_until_complete(
-            self.send_callback(session_id, scam_detected, total_messages, intelligence, agent_notes)
+            self.send_callback(session_id, scam_detected, total_messages, intelligence, agent_notes, engagement_duration_seconds)
         )
     
     def generate_agent_notes(self, session: SessionState, tactics: list) -> str:
@@ -150,10 +161,9 @@ class GuviCallbackHandler:
         """
         Determine if callback should be triggered.
         
-        Callback is triggered when:
+        Callback is triggered only when:
         - Scam is detected
-        - Turn count is EXACTLY 3, 6, or 10
-        - OR all intel collected (phone, UPI, links, bank accounts)
+        - Turn count reaches exactly 10
         
         Args:
             session: Current session state
@@ -165,38 +175,21 @@ class GuviCallbackHandler:
         if not session.scam_detected:
             return False
         
-        # Check if ALL key intelligence types are extracted (phone, UPI, links)
-        intel = session.extracted_intelligence
-        has_all_intel = (
-            len(intel.bankAccounts) > 0 and
-            len(intel.phoneNumbers) > 0 and
-            len(intel.upiIds) > 0 and
-            len(intel.phishingLinks) > 0
-        )
-        
         # Log what intel we have
+        intel = session.extracted_intelligence
         intel_summary = []
         if intel.phoneNumbers: intel_summary.append(f"phones:{len(intel.phoneNumbers)}")
         if intel.upiIds: intel_summary.append(f"upis:{len(intel.upiIds)}")
         if intel.phishingLinks: intel_summary.append(f"links:{len(intel.phishingLinks)}")
         if intel.bankAccounts: intel_summary.append(f"banks:{len(intel.bankAccounts)}")
+        if intel.emailAddresses: intel_summary.append(f"emails:{len(intel.emailAddresses)}")
         print(f"📊 Intel status: {', '.join(intel_summary) if intel_summary else 'none yet'} | Turn {session.turn_count}")
         
-        # Callback triggers at SPECIFIC turns: 3, 6, 10
-        callback_turns = [3, 6, 10]
-        is_callback_turn = session.turn_count in callback_turns
-        
-        # Track last callback turn to avoid duplicate callbacks at same turn
+        # Only trigger callback at turn 10 (final turn)
         last_callback_turn = getattr(session, 'last_callback_turn', 0)
         
-        # Trigger callback at specific turns (3, 6, 10)
-        if is_callback_turn and session.turn_count > last_callback_turn:
-            print(f"📤 Triggering callback at turn {session.turn_count}")
-            return True
-        
-        # Also trigger if all intel collected and haven't sent callback with all intel yet
-        if has_all_intel and not session.callback_had_all_intel:
-            print(f"📤 Triggering callback - all intel collected!")
+        if session.turn_count >= 10 and session.turn_count > last_callback_turn:
+            print(f"📤 Triggering callback at turn {session.turn_count} (final)")
             return True
         
         return False
