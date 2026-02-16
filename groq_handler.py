@@ -87,7 +87,7 @@ class GroqHandler:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
-                max_tokens=550,
+                max_tokens=256,
             )
 
             content = (response.choices[0].message.content or "").strip()

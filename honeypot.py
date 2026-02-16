@@ -38,13 +38,25 @@ class HoneypotHandler:
 
     def analyze_message(self, message: Message, conversation_history: list) -> ScamDetectionResult:
         """
-        Analyze message with AI detector first, then fallback to rule-based detector.
+        Analyze message with rule-based detector first (instant).
+        Only call Groq AI if rule-based confidence is low (<0.5).
+        This saves ~2-3 seconds per request on obvious scam messages.
         """
+        # Rule-based detection is instant
+        rule_result = self.detector.analyze(message, conversation_history)
+        
+        # If rule-based is confident enough, skip the expensive Groq call
+        if rule_result.confidence >= 0.5:
+            print(f"[FAST-PATH] Rule-based detection confident ({rule_result.confidence:.2f}), skipping Groq detection")
+            return rule_result
+        
+        # Low confidence — use AI for better detection
         if self.ai_handler and self.ai_handler.is_available():
             ai_detection = self.ai_handler.detect_scam(message.text, conversation_history)
             if ai_detection:
                 return ai_detection
-        return self.detector.analyze(message, conversation_history)
+        
+        return rule_result
     
     def process_message(self, request: IncomingRequest) -> AgentResponse:
         """
